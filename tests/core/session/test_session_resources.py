@@ -257,6 +257,20 @@ class RecordingEnrichmentAdapter(DataEnrichmentInterface):
         )
         return self._result
 
+    def split_by_observation(
+        self,
+        dataset_series: DatasetSeries,
+        *,
+        new_label: str | None = None,
+    ) -> DatasetSeries:
+        self.calls.append(
+            {
+                "dataset_series": dataset_series,
+                "new_label": new_label,
+            }
+        )
+        return self._result
+
 
 @pytest.mark.core
 class TestAdapterSignatureContracts:
@@ -279,6 +293,15 @@ class TestAdapterSignatureContracts:
             RecordingEnrichmentAdapter.enrich
         ) == self._signature_without_annotations(
             DataEnrichmentInterface.enrich
+        )
+
+    def test_recording_enrichment_adapter_split_signature_matches_interface(
+        self,
+    ):
+        assert self._signature_without_annotations(
+            RecordingEnrichmentAdapter.split_by_observation
+        ) == self._signature_without_annotations(
+            DataEnrichmentInterface.split_by_observation
         )
 
     def test_recording_aggregation_adapter_summarize_signature_matches_interface(
@@ -403,3 +426,41 @@ class TestSessionEnrich:
                     self._make_observation("source_b"),
                 ],
             )
+
+
+@pytest.mark.core
+class TestSessionSplitDatasetSeriesByObservation:
+    def test_split_dataset_series_by_observation_delegates_to_adapter(self):
+        session = get_session()
+        source_dataset_series = DatasetSeries(label="source")
+        expected = DatasetSeries(label="split")
+        adapter = RecordingEnrichmentAdapter(result=expected)
+        session.register_adapter("dataops", adapter)
+
+        result = session.split_dataset_series_by_observation(
+            source_dataset_series=source_dataset_series,
+            new_dataset_series_label="custom_split",
+        )
+
+        assert result is expected
+        assert len(adapter.calls) == 1
+        call = adapter.calls[0]
+        assert call["dataset_series"] is source_dataset_series
+        assert call["new_label"] == "custom_split"
+
+    def test_split_dataset_series_by_observation_uses_default_label(self):
+        session = get_session()
+        source_dataset_series = DatasetSeries(label="source")
+        expected = DatasetSeries(label="split")
+        adapter = RecordingEnrichmentAdapter(result=expected)
+        session.register_adapter("dataops", adapter)
+
+        result = session.split_dataset_series_by_observation(
+            source_dataset_series=source_dataset_series,
+        )
+
+        assert result is expected
+        assert len(adapter.calls) == 1
+        call = adapter.calls[0]
+        assert call["dataset_series"] is source_dataset_series
+        assert call["new_label"] is None
