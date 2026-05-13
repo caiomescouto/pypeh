@@ -326,6 +326,7 @@ class Session(Generic[T_AdapterType, T_DataType]):
         cast_error_policy: Literal["null", "raise", "report"] = "raise",
         schema_error_policy: Literal["raise", "report"] = "raise",
         namespace_key: str | None = None,
+        adapter_label: str = "dataops",
     ) -> DatasetSeries[DataFrame] | ValidationErrorReportCollection:
         cache_view = CacheContainerView(self.cache)
         assert isinstance(data_import_config, peh.DataImportConfig)
@@ -379,7 +380,7 @@ class Session(Generic[T_AdapterType, T_DataType]):
         if cast_error_reports:
             return cast_error_reports
 
-        import_adapter = self.get_adapter("dataops")
+        import_adapter = self.get_adapter(adapter_label)
         schema_error_reports = ValidationErrorReportCollection()
         for raw_dataset_label, raw_dataset in data_dict.items():
             assert isinstance(import_adapter, DataOpsInterface)
@@ -596,10 +597,11 @@ class Session(Generic[T_AdapterType, T_DataType]):
         data: Dataset[DataFrame],
         dependent_data: DatasetSeries[DataFrame] | None = None,
         allow_incomplete: bool = False,
+        adapter_label: str = "validation",
     ) -> ValidationErrorReport:
         assert data.data is not None, f"No data associated with {data.label}"
         cache_view = CacheContainerView(self.cache)
-        validation_adapter = self.get_adapter("validation")
+        validation_adapter = self.get_adapter(adapter_label)
         assert isinstance(validation_adapter, ValidationInterface)
         return validation_adapter.validate(
             dataset=data,
@@ -691,19 +693,35 @@ class Session(Generic[T_AdapterType, T_DataType]):
 
                 yield (target_observation, source_observation)
 
+    def split_dataset_series_by_observation(
+        self,
+        source_dataset_series: DatasetSeries[T_DataType],
+        new_dataset_series_label: str | None = None,
+        adapter_label: str = "dataops",
+    ) -> DatasetSeries[T_DataType]:
+        adapter = self.get_adapter(adapter_label)
+        assert isinstance(adapter, DataEnrichmentInterface)
+        ret = adapter.split_by_observation(
+            dataset_series=source_dataset_series,
+            new_label=new_dataset_series_label,
+        )
+        assert isinstance(ret, DatasetSeries)
+        return ret
+
     def enrich(
         self,
         source_dataset_series: DatasetSeries,
         target_observations: list[peh.Observation],
         target_derived_from: list[peh.Observation],
         target_dataset_labels: list[str] | None = None,
+        adapter_label: str = "enrichment",
     ) -> DatasetSeries:
         num_targets = len(target_observations)
         assert num_targets == len(target_derived_from)
         if target_dataset_labels is not None:
             assert num_targets == len(target_dataset_labels)
 
-        adapter = self.get_adapter("enrichment")
+        adapter = self.get_adapter(adapter_label)
         assert isinstance(adapter, DataEnrichmentInterface)
         # TODO: apply target_dataset_labels when splitting
         # DatasetSeries into Observations
@@ -720,13 +738,14 @@ class Session(Generic[T_AdapterType, T_DataType]):
         target_observations: list[peh.Observation],
         target_derived_from: list[peh.Observation],
         target_dataset_labels: list[str] | None = None,
+        adapter_label: str = "aggregation",
     ) -> DatasetSeries:
         num_targets = len(target_observations)
         assert num_targets == len(target_derived_from)
         if target_dataset_labels is not None:
             assert num_targets == len(target_dataset_labels)
 
-        adapter = self.get_adapter("aggregation")
+        adapter = self.get_adapter(adapter_label)
         assert isinstance(adapter, AggregationInterface)
         # TODO: apply target_dataset_labels when splitting
         # DatasetSeries into Observations
