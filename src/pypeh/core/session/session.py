@@ -455,18 +455,21 @@ class Session(Generic[T_AdapterType, T_DataType]):
     def dump_tabular_dataset_series(
         self,
         dataset_series: DatasetSeries[DataFrame],
-        output_path: str,
+        output_path: str | None = None,
         file_format: Literal["parquet"] = "parquet",
         connection_label: str | None = None,
     ) -> list[str]:
         """
         Dump a DatasetSeries as one pypeh semantic parquet file per Dataset.
+        If output_path is omitted, files are written to the connection root.
         """
         if file_format != "parquet":
             raise NotImplementedError(
                 "Session.dump_tabular_dataset_series currently only supports "
                 f"file_format='parquet'. Got {file_format!r}."
             )
+        if output_path is None:
+            output_path = "./"
 
         if connection_label is None:
             connection_label = DEFAULT_CONNECTION_LABEL

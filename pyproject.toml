@@ -30,6 +30,7 @@ export-adapter=["xlsxwriter"]
 compehndly=["compehndly>=0.0.1a2"]
 test-core = ["pytest>=8.2.0,<9"]
 test-dataframe=["numpy", "scipy>=1.15.3"]
+test-s3 = ["s3fs", "moto[s3]"]
 
 [dependency-groups]
 test-core = [
@@ -49,7 +50,7 @@ test-export = [
 test-rocrate = [
     "rocrate",
 ]
-test-s3 = ["s3fs"]
+test-s3 = ["s3fs", "moto[s3,server]"]
 test-compehndly = ["compehndly>=0.0.1a2"]
 docs = [
     "mkdocs>=1.6.0,<2",
@@ -98,6 +99,7 @@ markers = [
     "dataframe: tests for dataframe-based adapters",
     "end_to_end: tests for stateful, configuration based, end-to-end functionality",
     "end_to_end_consistency: tests for stateful, configuration based, end-to-end consitency validation",
+    "integration: tests that exercise external service adapters against local mock services",
     "export: tests for export adapters",
     "interface: tests for shared interfaces",
     "rocrate: tests for rocrate-based adapter",
