@@ -27,8 +27,8 @@ test-rocrate:
 	uv run pytest -s tests/adapters tests/core -m rocrate -W ignore
 
 test-s3:
-	uv pip install -e ".[s3-adapter, test-core]"
-	uv run pytest -s tests/adapters tests/core -m s3 -W ignore
+	uv pip install -e ".[s3-adapter, dataframe-adapter, test-core, test-s3]"
+	uv run pytest -s tests/adapters tests/core tests/integration -m s3 -W ignore
 
 test-compehndly:
 	uv pip install -e ".[dataframe-adapter, test-core, compehndly]"

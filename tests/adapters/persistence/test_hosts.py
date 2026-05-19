@@ -5,6 +5,7 @@ from pathlib import Path
 from peh_model.peh import EntityList
 
 from pypeh.adapters.persistence.hosts import (
+    DirectoryIO,
     FileIO,
     LocalStorageProvider,
     S3StorageProvider,
@@ -159,6 +160,21 @@ class TestS3StorageProvider:
         assert s3io is not None
         test = s3io._normalize_root("s3://my-test-bucket")
         assert test == "my-test-bucket"
+
+    def test_remote_path_normalization_is_idempotent_under_root(self):
+        remote_io = DirectoryIO(
+            root="my-test-bucket/base-prefix",
+            protocol="memory",
+        )
+
+        assert (
+            remote_io._normalize_path("output")
+            == "my-test-bucket/base-prefix/output"
+        )
+        assert (
+            remote_io._normalize_path("my-test-bucket/base-prefix/output")
+            == "my-test-bucket/base-prefix/output"
+        )
 
 
 @pytest.mark.core

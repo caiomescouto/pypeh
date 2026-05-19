@@ -173,7 +173,10 @@ class DirectoryIO(HostAdapter):
         p = PurePosixPath(raw)
 
         if self.root:
-            return str(PurePosixPath(self.root) / p)
+            root = PurePosixPath(self.root)
+            if p == root or p.is_relative_to(root):
+                return str(p)
+            return str(root / p)
 
         return str(p)
 

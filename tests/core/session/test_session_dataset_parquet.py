@@ -1,6 +1,9 @@
 import pytest
 
+from contextlib import contextmanager
+
 from pypeh import LocalFileConfig, Session
+from pypeh.adapters.persistence.hosts import DirectoryIO
 from pypeh.core.models.constants import ObservablePropertyValueType
 from pypeh.core.models.internal_data_layout import Dataset, DatasetSeries
 
@@ -16,6 +19,26 @@ def parquet_session(tmp_path):
         ],
         default_connection=None,
     )
+
+
+class _SingleConnectionManager:
+    def __init__(self, connection):
+        self.connection = connection
+
+    @contextmanager
+    def get_connection(self, connection_label=None):
+        yield self.connection
+
+
+@pytest.fixture
+def s3_like_parquet_session():
+    session = Session(default_connection=None)
+    connection = DirectoryIO(
+        root="example-bucket/base-prefix",
+        protocol="memory",
+    )
+    session.connection_manager = _SingleConnectionManager(connection)
+    return session, connection
 
 
 @pytest.fixture
@@ -90,6 +113,42 @@ class TestSessionParquet:
         lab_data = lab_dataset.data
         assert lab_data is not None
         assert lab_data.shape == (2, 2)
+
+    def test_session_dump_s3_like_paths_are_filesystem_relative(
+        self, s3_like_parquet_session, dataset_series
+    ):
+        session, connection = s3_like_parquet_session
+
+        source_paths = session.dump_tabular_dataset_series(
+            dataset_series,
+            connection_label="data",
+        )
+
+        assert source_paths == [
+            "example-bucket/base-prefix/SAMPLE.parquet",
+            "example-bucket/base-prefix/LAB.parquet",
+        ]
+        assert all(not path.startswith("s3://") for path in source_paths)
+        assert all(
+            connection.file_system.exists(path) for path in source_paths
+        )
+
+    def test_session_s3_like_dump_paths_roundtrip_through_session_read(
+        self, s3_like_parquet_session, dataset_series
+    ):
+        session, _ = s3_like_parquet_session
+
+        source_paths = session.dump_tabular_dataset_series(
+            dataset_series,
+            connection_label="data",
+        )
+        loaded = session.read_tabular_dataset_series(
+            source_paths,
+            file_format="parquet",
+            connection_label="data",
+        )
+
+        assert set(loaded.parts) == {"SAMPLE", "LAB"}
 
     def test_session_read_dataset_series_requires_explicit_files(
         self, parquet_session
