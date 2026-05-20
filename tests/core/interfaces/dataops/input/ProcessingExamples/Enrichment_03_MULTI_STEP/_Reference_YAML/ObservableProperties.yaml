@@ -95,7 +95,7 @@ observable_properties:
   ui_label: N1Birthdate
   short_name: N1Birthdate
   description: 1. Birthdate
-  value_type: datetime
+  value_type: date
   categorical: false
   multivalued: false
   unit: UNITLESS
@@ -123,7 +123,7 @@ observable_properties:
   name: Todaysdate
   short_name: Todaysdate
   description: Today's date (as filled by participant on questionnaire)
-  value_type: datetime
+  value_type: date
   categorical: false
   multivalued: false
   unit: UNITLESS
@@ -133,9 +133,9 @@ observable_properties:
   relevant_observation_types:
   - questionnaire
   calculation_design:
-    calculation_name: datetime_from_year_month_day
+    calculation_name: date_from_year_month_day
     calculation_implementation:
-      function_name: tests.core.interfaces.dataops.enrichment_functions.datetime_from_year_month_day
+      function_name: tests.core.interfaces.dataops.enrichment_functions.date_from_year_month_day
       function_kwargs:
       - mapping_name: year
         contextual_field_reference:
@@ -156,7 +156,7 @@ observable_properties:
         process_state: clean
         unit: UNITLESS
       function_results:
-      - value_type: datetime
+      - value_type: date
         unit: UNITLESS
 - id: peh:agemonths
   name: agemonths

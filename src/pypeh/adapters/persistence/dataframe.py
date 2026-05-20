@@ -98,6 +98,45 @@ class ExcelIOImpl(IOAdapter):
             )
         return cast_error_policy
 
+    @staticmethod
+    def _build_read_dtypes(
+        typed_schema: Mapping[str, DataType | DataTypeClass] | None,
+        *,
+        cast_error_policy: CastErrorPolicy,
+    ) -> dict[str, str] | None:
+        if typed_schema is None:
+            return None
+
+        def to_reader_dtype(
+            polars_type: DataType | DataTypeClass,
+        ) -> str:
+            base_type = polars_type.base_type()
+            if base_type in {
+                pl.Int8,
+                pl.Int16,
+                pl.Int32,
+                pl.Int64,
+                pl.Int128,
+                pl.UInt8,
+                pl.UInt16,
+                pl.UInt32,
+                pl.UInt64,
+            }:
+                return "int"
+            if base_type in {pl.Float32, pl.Float64}:
+                return "float"
+            if base_type == pl.Boolean:
+                return "boolean"
+            return "string"
+
+        if cast_error_policy == "null":
+            return {
+                column_name: to_reader_dtype(polars_type)
+                for column_name, polars_type in typed_schema.items()
+            }
+
+        return dict.fromkeys(typed_schema, "string")
+
     def _cast_frame_to_schema(
         self,
         data: pl.DataFrame,
@@ -189,6 +228,11 @@ class ExcelIOImpl(IOAdapter):
             **default,
             "sheet_name": section_name,
         }
+        read_dtypes = self._build_read_dtypes(
+            typed_schema, cast_error_policy=cast_error_policy
+        )
+        if read_dtypes is not None:
+            options["read_options"] = {"dtypes": read_dtypes}
 
         ret = self._load(source, **options)
         assert isinstance(ret, pl.DataFrame)

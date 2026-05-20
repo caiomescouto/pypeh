@@ -1,0 +1,178 @@
+observable_properties:
+- id: https://w3id.org/peh/id/observable-property/01KQWBY3QVS62S5PHWFZEGPFS1
+  short_name: cdcca_sg
+  name: adults|urine_lab|cdcca_sg
+  ui_label: cdcca_sg
+  value_type: decimal
+  categorical: false
+  multivalued: false
+  required: false
+  zeroallowed: true
+  significantdecimals: 6
+  observation_result_type: calculation
+  relevant_observation_types:
+  - sampling
+  calculation_design:
+    calculation_name: sg
+    calculation_implementation:
+      function_name: compehndly.entrypoints.normalize_specific_gravity
+      function_kwargs:
+      - mapping_name: measured
+        # adults|urine_lab|cdcca
+        contextual_field_reference:
+          dataset_label: https://w3id.org/peh/id/observation/01KMYXDM0D3BMZTKC93YR0MEJM
+          field_label: https://w3id.org/peh/id/observable-property/01KMRAVNT4T5EFRWKAYKB29WE3
+      - mapping_name: sg_measured
+        # adults|urine_lab|sg
+        contextual_field_reference:
+          dataset_label: https://w3id.org/peh/id/observation/01KMYXDM0D3BMZTKC93YR0MEJM
+          field_label: https://w3id.org/peh/id/observable-property/01KMRAVNSVWAJKN6YT8V1115C9
+      - mapping_name: sg_ref
+        value: 1024
+        value_type: float
+- id: https://w3id.org/peh/id/observable-property/01KQWBY3QXJKK9ZGKB1ZADVQER
+  short_name: tdcca_sg
+  ui_label: tdcca_sg
+  name: adults|urine_lab|tdcca_sg
+  value_type: decimal
+  categorical: false
+  multivalued: false
+  required: false
+  zeroallowed: true
+  significantdecimals: 6
+  observation_result_type: calculation
+  relevant_observation_types:
+  - sampling
+  calculation_design:
+    calculation_name: sg
+    calculation_implementation:
+      function_name: compehndly.entrypoints.normalize_specific_gravity
+      function_kwargs:
+      - mapping_name: measured
+        # adults|urine_lab|tdcca
+        contextual_field_reference:
+          dataset_label: https://w3id.org/peh/id/observation/01KMYXDM0D3BMZTKC93YR0MEJM
+          field_label: https://w3id.org/peh/id/observable-property/01KMRAVNT4T5EFRWKAYKB29WE9
+      - mapping_name: sg_measured
+        # adults|urine_lab|sg
+        contextual_field_reference:
+          dataset_label: https://w3id.org/peh/id/observation/01KMYXDM0D3BMZTKC93YR0MEJM
+          field_label: https://w3id.org/peh/id/observable-property/01KMRAVNSVWAJKN6YT8V1115C9
+      - mapping_name: sg_ref
+        value: 1024
+        value_type: float
+- id: https://w3id.org/peh/id/observable-property/01KQWBY3SC3KK2MHMG19Z8204G
+  short_name: sumdcca
+  ui_label: sumdcca
+  name: adults|urine_lab|sumdcca
+  value_type: decimal
+  categorical: false
+  multivalued: false
+  required: false
+  zeroallowed: true
+  significantdecimals: 6
+  observation_result_type: calculation
+  relevant_observation_types:
+  - sampling
+  calculation_design:
+    calculation_name: sum
+    calculation_implementation:
+      function_name: compehndly.entrypoints.summation
+      function_kwargs:
+      - mapping_name: cdcca
+        # adults|urine_lab|cdcca
+        contextual_field_reference:
+          dataset_label: https://w3id.org/peh/id/observation/01KMYXDM0D3BMZTKC93YR0MEJM
+          field_label: https://w3id.org/peh/id/observable-property/01KMRAVNT4T5EFRWKAYKB29WE3
+      - mapping_name: tdcca
+        # adults|urine_lab|tdcca
+        contextual_field_reference:
+          dataset_label: https://w3id.org/peh/id/observation/01KMYXDM0D3BMZTKC93YR0MEJM
+          field_label: https://w3id.org/peh/id/observable-property/01KMRAVNT4T5EFRWKAYKB29WE9
+- id: https://w3id.org/peh/id/observable-property/01KQWBY3SC3KK2MHMG29Z8214G
+  short_name: sumdcca_sg
+  name: adults|urine_lab|sumdcca_sg
+  ui_label: sumdcca_sg
+  value_type: decimal
+  categorical: false
+  multivalued: false
+  required: false
+  zeroallowed: true
+  significantdecimals: 6
+  observation_result_type: calculation
+  relevant_observation_types:
+  - sampling
+  calculation_design:
+    calculation_name: sg
+    calculation_implementation:
+      function_name: compehndly.entrypoints.normalize_specific_gravity
+      function_kwargs:
+      - mapping_name: measured
+        # adults|urine_lab|sumdcca
+        contextual_field_reference:
+          dataset_label: https://w3id.org/peh/id/derived-observation/01KMYXDM0D4BMZTKC93YR0MEJV
+          field_label: https://w3id.org/peh/id/observable-property/01KQWBY3SC3KK2MHMG19Z8204G
+      - mapping_name: sg_measured
+        # adults|urine_lab|sg
+        contextual_field_reference:
+          dataset_label: https://w3id.org/peh/id/observation/01KMYXDM0D3BMZTKC93YR0MEJM
+          field_label: https://w3id.org/peh/id/observable-property/01KMRAVNSVWAJKN6YT8V1115C9
+      - mapping_name: sg_ref
+        value: 1024
+        value_type: float
+- id: https://w3id.org/peh/id/observable-property/01KQWBY3RDD2A90FY2GVSPFMVV
+  short_name: lipid_enz_harm
+  ui_label: lipid_enz_harm
+  name: adults|bloodserum_lab|lipid_enz_harm
+  value_type: decimal
+  categorical: false
+  multivalued: false
+  required: false
+  zeroallowed: true
+  significantdecimals: 6
+  observation_result_type: calculation
+  relevant_observation_types:
+  - sampling
+  calculation_design:
+    calculation_name: lipid_enz_harm
+    calculation_implementation:
+      function_name: compehndly.entrypoints.total_lipid_concentration
+      function_kwargs:
+      - mapping_name: chol
+        # adults|bloodserum_lab|chol
+        contextual_field_reference:
+          dataset_label: https://w3id.org/peh/id/observation/01KMYXDM0D3BMZTKC93YR0MEJM
+          field_label: https://w3id.org/peh/id/observable-property/01KMRAVNTER2HXS8V3NJGNBPX9
+      - mapping_name: trigl
+        # adults|bloodserum_lab|trigl
+        contextual_field_reference:
+          dataset_label: https://w3id.org/peh/id/observation/01KMYXDM0D3BMZTKC93YR0MEJM
+          field_label: https://w3id.org/peh/id/observable-property/01KMRAVNTFGTJ2MX74SC5MF9JJ
+- id: https://w3id.org/peh/id/observable-property/01KQWBY3RDD2A91FY3GVSPFMVV
+  short_name: dona_lip
+  name: adults|bloodserum_lab|dona_lip
+  ui_label: dona_lip
+  value_type: decimal
+  categorical: false
+  multivalued: false
+  required: false
+  zeroallowed: true
+  significantdecimals: 6
+  observation_result_type: calculation
+  relevant_observation_types:
+  - sampling
+  calculation_design:
+    calculation_name: lip
+    calculation_implementation:
+      function_name: compehndly.entrypoints.standardize_lipid
+      function_kwargs:
+      - mapping_name: measured
+        # adults|bloodserum_lab|dona
+        contextual_field_reference:
+          dataset_label: https://w3id.org/peh/id/observation/01KMYXDM0D3BMZTKC93YR0MEJM
+          field_label: https://w3id.org/peh/id/observable-property/01KMRAVNTWSX9BKXKE7CM2AB8V
+      - mapping_name: lipid_value
+        # adults|bloodserum_lab|lipid_enz_harm
+        contextual_field_reference:
+          dataset_label: https://w3id.org/peh/id/derived-observation/01KMYXDM0D4BMZTKC93YR0MEJV
+          field_label: https://w3id.org/peh/id/observable-property/01KQWBY3RDD2A90FY2GVSPFMVV

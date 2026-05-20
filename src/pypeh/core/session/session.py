@@ -703,7 +703,7 @@ class Session(Generic[T_AdapterType, T_DataType]):
         adapter_label: str = "dataops",
     ) -> DatasetSeries[T_DataType]:
         adapter = self.get_adapter(adapter_label)
-        assert isinstance(adapter, DataEnrichmentInterface)
+        assert isinstance(adapter, DataOpsInterface)
         ret = adapter.split_by_observation(
             dataset_series=source_dataset_series,
             new_label=new_dataset_series_label,

@@ -113,7 +113,7 @@ observable_properties:
 - id: peh:mean_birthweight
   ui_label: mean_birthweight
   name: mean_birthweight
-  short_name: MBW
+  short_name: mean_birthweight
   value_type: float
   categorical: false
   multivalued: false
@@ -134,7 +134,7 @@ observable_properties:
 - id: peh:sem_birthweight
   ui_label: sem_birthweight
   name: sem_birthweight
-  short_name: SEMBW
+  short_name: sem_birthweight
   value_type: float
   categorical: false
   multivalued: false
@@ -155,7 +155,7 @@ observable_properties:
 - id: peh:mean_birthlength
   ui_label: mean_birthlength
   name: mean_birthlength
-  short_name: MBL
+  short_name: mean_birthlength
   value_type: float
   categorical: false
   multivalued: false
@@ -176,7 +176,7 @@ observable_properties:
 - id: peh:mean_birthweight2
   ui_label: mean_birthweight2
   name: mean_birthweight2
-  short_name: MBW2
+  short_name: mean_birthweight2
   value_type: float
   categorical: false
   multivalued: false

@@ -197,6 +197,49 @@ class TestXlsIO:
             )
         assert isinstance(result, dict)
 
+    @pytest.mark.parametrize(
+        "cast_error_policy, expected_chol_read_type",
+        [
+            ("null", "float"),
+            ("raise", "string"),
+            ("report", "string"),
+        ],
+    )
+    def test_typed_sheet_passes_dtypes_to_reader(
+        self, monkeypatch, cast_error_policy, expected_chol_read_type
+    ):
+        import polars as pl
+
+        from pypeh.adapters.persistence.dataframe import ExcelIOImpl
+
+        captured_options = {}
+
+        def fake_load(self, source, **options):
+            captured_options.update(options)
+            return pl.DataFrame(
+                {
+                    "id_sample": ["sample_a"],
+                    "chol": ["1.2"],
+                }
+            )
+
+        monkeypatch.setattr(ExcelIOImpl, "_load", fake_load)
+
+        result = ExcelIOImpl().load_section(
+            "unused.xlsx",
+            section_name="SAMPLE",
+            data_schema={"id_sample": "string", "chol": "float"},
+            cast_error_policy=cast_error_policy,
+        )
+
+        assert captured_options["read_options"] == {
+            "dtypes": {
+                "id_sample": "string",
+                "chol": expected_chol_read_type,
+            }
+        }
+        assert result.schema["chol"] == pl.Float64
+
     def test_typed_sheet_type_mismatch_is_loaded_as_null(self, tmp_path):
         source = tmp_path / "typed_mismatch.xlsx"
         write_minimal_xlsx(

@@ -1307,6 +1307,14 @@ class TestDataFrameEnrichment(TestEnrichment):
             "ENRICH_BASE": df_enriched,
         }
 
+    def test_type_mapper_distinguishes_date_and_datetime(self):
+        import polars as pl
+
+        adapter = self.get_adapter()
+
+        assert adapter.type_mapper("date") is pl.Date
+        assert adapter.type_mapper("datetime") is pl.Datetime
+
 
 @pytest.mark.other
 class TestUnknownDataOps(TestValidation):
