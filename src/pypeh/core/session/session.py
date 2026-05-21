@@ -576,7 +576,7 @@ class Session(Generic[T_AdapterType, T_DataType]):
                 assert ret
 
             # resource should have been loaded into cache
-            ret = self.get_resource(resource_identifier, resource_type)
+            ret = self.cache.require(resource_identifier, resource_type)
             type_to_cast = getattr(peh, resource_type)
             assert isinstance(ret, type_to_cast)
         else:
@@ -677,7 +677,7 @@ class Session(Generic[T_AdapterType, T_DataType]):
         self,
         observation_group_id: str,
     ) -> Generator[tuple[peh.DerivedObservation, peh.Observation], None, None]:
-        observation_group = self.cache.get(
+        observation_group = self.cache.require(
             observation_group_id, "ObservationGroup"
         )
         assert isinstance(observation_group, peh.ObservationGroup)
@@ -689,7 +689,7 @@ class Session(Generic[T_AdapterType, T_DataType]):
             if isinstance(target_observation, peh.DerivedObservation):
                 source_observation_id = target_observation.was_derived_from
                 assert isinstance(source_observation_id, str)
-                source_observation = self.cache.get(
+                source_observation = self.cache.require(
                     source_observation_id, "Observation"
                 )
                 assert isinstance(source_observation, peh.Observation)

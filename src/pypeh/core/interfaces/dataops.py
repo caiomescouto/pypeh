@@ -228,16 +228,16 @@ class DataOpsInterface(Generic[T_DataType]):
         ret = {}
         observation_design_id = observation.observation_design
         assert isinstance(observation_design_id, str)
-        observation_design = cache_view.get(
+        observation_design = cache_view.require(
             observation_design_id, "ObservationDesign"
         )
-        assert observation_design is not None
+        assert isinstance(observation_design, peh.ObservationDesign)
         observable_property_specs = (
             observation_design.observable_property_specifications
         )
         assert observable_property_specs is not None
         for observable_property_spec in observable_property_specs:
-            observable_property = cache_view.get(
+            observable_property = cache_view.require(
                 observable_property_spec.observable_property,
                 "ObservableProperty",
             )
@@ -754,7 +754,7 @@ class ValidationInterface(DataOpsInterface, Generic[T_DataType]):
 
         validations = []
         observable_property_id = dataset_schema_element.observable_property_id
-        observable_property = cache_view.get(
+        observable_property = cache_view.require(
             observable_property_id, "ObservableProperty"
         )
         assert isinstance(
@@ -929,8 +929,9 @@ class ValidationInterface(DataOpsInterface, Generic[T_DataType]):
         if layout_section_id is None:
             return None
         assert isinstance(layout_section_id, str)
-        layout_section = cache_view.get(layout_section_id, "DataLayoutSection")
-        assert layout_section is not None
+        layout_section = cache_view.require(
+            layout_section_id, "DataLayoutSection"
+        )
         assert isinstance(layout_section, peh.DataLayoutSection)
         if layout_section.validation_designs:
             for vd in layout_section.validation_designs:
@@ -1332,7 +1333,7 @@ class DataEnrichmentInterface(DataOpsInterface, Generic[T_DataType]):
             assert isinstance(
                 observation.observation_design, peh.ObservationDesignId
             )
-            observation_design = cache_view.get(
+            observation_design = cache_view.require(
                 observation.observation_design, "ObservationDesign"
             )
             assert isinstance(observation_design, peh.ObservationDesign)
@@ -1355,7 +1356,7 @@ class DataEnrichmentInterface(DataOpsInterface, Generic[T_DataType]):
                     observable_property_spec.observable_property,
                     (peh.ObservablePropertyId, str),
                 ):
-                    observable_property = cache_view.get(
+                    observable_property = cache_view.require(
                         observable_property_spec.observable_property,
                         "ObservableProperty",
                     )
@@ -1525,8 +1526,7 @@ class DataEnrichmentInterface(DataOpsInterface, Generic[T_DataType]):
         all_observations = []
         for nested_observations in source_dataset_series.observations.values():
             for observation_id in nested_observations:
-                observation = cache_view.get(observation_id, "Observation")
-                assert observation is not None
+                observation = cache_view.require(observation_id, "Observation")
                 all_observations.append(observation)
 
         dependency_graph = self.build_dependency_graph(
@@ -1654,7 +1654,7 @@ class AggregationInterface(DataOpsInterface, Generic[T_DataType]):
                 target_observation.observation_design
             )
             assert isinstance(target_observation_design_id, str)
-            target_observation_design = cache_view.get(
+            target_observation_design = cache_view.require(
                 target_observation_design_id, "ObservationDesign"
             )
             assert isinstance(target_observation_design, peh.ObservationDesign)
@@ -1671,7 +1671,7 @@ class AggregationInterface(DataOpsInterface, Generic[T_DataType]):
                     observable_property_spec.observable_property
                 )
                 assert isinstance(observable_property_id, str)
-                observable_property = cache_view.get(
+                observable_property = cache_view.require(
                     observable_property_id, "ObservableProperty"
                 )
                 assert isinstance(observable_property, peh.ObservableProperty)
