@@ -188,6 +188,42 @@ Both methods currently support `file_format="parquet"` only. Reading validates
 foreign-key references by default; set `validate_foreign_keys=False` when
 loading a partial subset intentionally.
 
+## Split Data by Observation
+
+Use `split_dataset_series_by_observation` to normalize an imported
+`DatasetSeries` into observation-specific datasets. This is useful when source
+files were organized for collection or import, but downstream validation,
+enrichment, or export workflows should operate on one observation at a time.
+
+```python
+observation_dataset_series = session.split_dataset_series_by_observation(
+    source_dataset_series=dataset_series,
+)
+```
+
+The method delegates to the registered data-operations adapter. The adapter
+uses the `DatasetSeries` schema, observation membership, contextual field
+references, and foreign-key metadata to construct a new `DatasetSeries`.
+
+Datasets that contain fields for multiple observations may be split apart. If
+fields for one observation are spread across multiple datasets, the adapter can
+join those fields into one output dataset when the `DatasetSeries` declares the
+required foreign-key links.
+
+Pass `new_dataset_series_label` when you want to control the returned series
+label:
+
+```python
+observation_dataset_series = session.split_dataset_series_by_observation(
+    source_dataset_series=dataset_series,
+    new_dataset_series_label="study_by_observation",
+)
+```
+
+The returned `DatasetSeries` contains datasets organized by observation. Each
+output dataset is associated with one observation and contains the fields
+relevant to that observation.
+
 ## Validate Tabular Data
 
 Validate one dataset:

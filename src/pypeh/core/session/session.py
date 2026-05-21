@@ -702,6 +702,7 @@ class Session(Generic[T_AdapterType, T_DataType]):
         new_dataset_series_label: str | None = None,
         adapter_label: str = "dataops",
     ) -> DatasetSeries[T_DataType]:
+        """Split a DatasetSeries into observation-specific datasets."""
         adapter = self.get_adapter(adapter_label)
         assert isinstance(adapter, DataOpsInterface)
         ret = adapter.split_by_observation(

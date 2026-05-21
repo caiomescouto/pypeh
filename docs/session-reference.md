@@ -124,6 +124,19 @@ Read pypeh semantic parquet files previously produced by
 paths, such as the list returned by `dump_tabular_dataset_series`.
 
 ```python
+split_dataset_series_by_observation(
+    source_dataset_series: DatasetSeries,
+    new_dataset_series_label: str | None = None,
+    adapter_label: str = "dataops",
+) -> DatasetSeries
+```
+
+Return a new `DatasetSeries` whose datasets are organized by observation. The
+method delegates to the registered data-operations adapter. When
+`new_dataset_series_label` is omitted, the adapter derives a label from the
+source series label.
+
+```python
 validate_tabular_dataset(
     data: Dataset,
     dependent_data: DatasetSeries | None = None,
