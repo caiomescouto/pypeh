@@ -82,6 +82,8 @@ class DatasetSchema:
             data_type = element.data_type
             if data_type is not None:
                 ret[element.label] = data_type
+            else:
+                ret[element.label] = ObservablePropertyValueType.STRING
 
         return ret
 
@@ -571,6 +573,9 @@ class DatasetSeries(Resource, Generic[T_DataType]):
         dataset_label: str,
         element_label: str,
     ):
+        assert isinstance(
+            element_label, str
+        ), "Context index element labels must be strings"
         self._context_index[(observation_id, observable_property_id)] = (
             dataset_label,
             element_label,
@@ -871,25 +876,25 @@ class DatasetSeries(Resource, Generic[T_DataType]):
         observable_property_id: str,
         data_type: ObservablePropertyValueType,
         dataset_label: str,
-        element_label: str,
+        element_label: str | None = None,
         is_primary_key: bool = False,
     ):
         assert dataset_label in self.parts
         dataset = self[dataset_label]
         assert dataset is not None
-        self._register_observable_property(
-            observable_property_id=observable_property_id,
-            observation_id=observation_id,
-            dataset_label=dataset_label,
-            element_label=element_label,
-        )
-
-        return dataset.add_observable_property(
+        schema_element = dataset.add_observable_property(
             observable_property_id,
             data_type,
             element_label,
             is_primary_key,
         )
+        self._register_observable_property(
+            observable_property_id=observable_property_id,
+            observation_id=observation_id,
+            dataset_label=dataset_label,
+            element_label=schema_element.label,
+        )
+        return schema_element
 
     def add_empty_dataset(
         self,
@@ -944,6 +949,16 @@ class DatasetSeries(Resource, Generic[T_DataType]):
                     observable_property.id
                     in dataset.schema._elements_by_observable_property
                 ):
+                    if element_label is None:
+                        element_labels = (
+                            dataset.schema._elements_by_observable_property[
+                                observable_property.id
+                            ]
+                        )
+                        assert (
+                            len(element_labels) == 1
+                        ), "Expected identifying ObservableProperty to map to one schema element"
+                        element_label = next(iter(element_labels))
                     self._register_observable_property(
                         observable_property_id=observable_property.id,
                         observation_id=observation.id,

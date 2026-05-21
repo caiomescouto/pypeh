@@ -241,8 +241,16 @@ class DataOpsInterface(Generic[T_DataType]):
                 observable_property_spec.observable_property,
                 "ObservableProperty",
             )
-            assert isinstance(observable_property, peh.ObservableProperty)
-            ret[observable_property.ui_label] = observable_property_spec
+            assert isinstance(
+                observable_property, peh.ObservableProperty
+            ), f"Could not find observable property with id {observable_property_spec.observable_property} in cache."
+            element_label = observable_property.short_name
+            if element_label is None:
+                element_label = observable_property.ui_label
+            if element_label is None:
+                element_label = observable_property.id
+            assert isinstance(element_label, str)
+            ret[element_label] = observable_property_spec
         return ret
 
     def get_dataset_by_observation_id(
@@ -1134,12 +1142,87 @@ class DataEnrichmentInterface(DataOpsInterface, Generic[T_DataType]):
     @abstractmethod
     def map_type(self, peh_value_type: str): ...
 
+    @staticmethod
+    def _resolve_untyped_scalar_value(value):
+        """
+        Best-effort scalar coercion for calculation kwargs.
+
+        Temporary bridge until CalculationKeywordArgument values carry their
+        own PEH value_type metadata.
+        """
+        if not isinstance(value, str):
+            return value
+
+        stripped = value.strip()
+        if stripped == "":
+            return value
+
+        lower_value = stripped.lower()
+        if lower_value == "true":
+            return True
+        if lower_value == "false":
+            return False
+
+        try:
+            return int(stripped)
+        except ValueError:
+            pass
+
+        try:
+            return float(stripped)
+        except ValueError:
+            return value
+
+    @staticmethod
+    def _scalar_type_names(mapped_type, peh_value_type) -> set[str]:
+        type_names = {
+            str(mapped_type).lower(),
+            str(peh_value_type).lower(),
+        }
+        mapped_type_name = getattr(mapped_type, "__name__", None)
+        if mapped_type_name is not None:
+            type_names.add(mapped_type_name.lower())
+        value_type_value = getattr(peh_value_type, "value", None)
+        if value_type_value is not None:
+            type_names.add(str(value_type_value).lower())
+        return type_names
+
+    def _resolve_scalar_value(self, value, value_type):
+        if value_type is None:
+            return self._resolve_untyped_scalar_value(value)
+
+        mapped_type = self.type_mapper(value_type)
+        type_names = self._scalar_type_names(mapped_type, value_type)
+
+        if "string" in type_names or "categorical" in type_names:
+            return str(value)
+        if "boolean" in type_names or "bool" in type_names:
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str):
+                lower_value = value.strip().lower()
+                if lower_value in {"true", "1", "yes"}:
+                    return True
+                if lower_value in {"false", "0", "no"}:
+                    return False
+            return bool(value)
+        if "integer" in type_names or "int64" in type_names:
+            return int(value)
+        if (
+            "float" in type_names
+            or "decimal" in type_names
+            or "float64" in type_names
+        ):
+            return float(value)
+
+        return value
+
     def build_callable(self, delayed_node: graph.Delayed) -> Callable:
         map_fn = delayed_node.map_fn
         arg_sources = delayed_node.arg_sources
         arg_values = delayed_node.arg_values
         join_specs = delayed_node.join_specs
-        output_dtype = self.map_type(delayed_node.output_dtype)
+        output_dtype = self.type_mapper(delayed_node.output_dtype)
 
         def _apply(datasets: dict, *, node: graph.Node, base_fields: dict):
             """
@@ -1336,8 +1419,14 @@ class DataEnrichmentInterface(DataOpsInterface, Generic[T_DataType]):
                             "contextual_field_reference",
                             None,
                         )
-                        # TODO: Validate once peh-model 0.5.3 has been released
                         scalar_value = getattr(function_kwarg, "value", None)
+                        scalar_value_type = getattr(
+                            function_kwarg, "value_type", None
+                        )
+                        if scalar_value is not None:
+                            scalar_value = self._resolve_scalar_value(
+                                scalar_value, scalar_value_type
+                            )
 
                         if source_field_ref is not None:
                             assert isinstance(

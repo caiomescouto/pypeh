@@ -142,6 +142,67 @@ class TestInternalDataLayout:
         )
         assert result_success is None
 
+    def test_add_observable_property_registers_resolved_label(self):
+        dataset_series = DatasetSeries(label="series")
+        dataset = dataset_series.add_empty_dataset("dataset")
+        dataset.add_observation_to_index("obs")
+
+        dataset_series.add_observable_property(
+            observation_id="obs",
+            observable_property_id="prop",
+            data_type=ObservablePropertyValueType.STRING,
+            dataset_label="dataset",
+            element_label=None,
+        )
+
+        assert dataset_series.context_lookup("obs", "prop") == (
+            "dataset",
+            "prop",
+        )
+
+    def test_add_observation_registers_existing_identifying_label(self):
+        container = CacheContainerFactory.new()
+        observable_property = peh.ObservableProperty(
+            id="prop",
+            value_type="string",
+        )
+        container.add(observable_property)
+        cache_view = CacheContainerView(container)
+
+        dataset_series = DatasetSeries(label="series")
+        dataset = dataset_series.add_empty_dataset("dataset")
+        dataset.add_observation_to_index("source_obs")
+        dataset_series.add_observable_property(
+            observation_id="source_obs",
+            observable_property_id="prop",
+            data_type=ObservablePropertyValueType.STRING,
+            dataset_label="dataset",
+            element_label="subject_id",
+            is_primary_key=True,
+        )
+
+        target_observation = peh.Observation(
+            id="target_obs",
+            observation_design="target_design",
+        )
+        identifying_spec = peh.ObservablePropertySpecification(
+            observable_property="prop",
+            specification_category=peh.ObservablePropertySpecificationCategory.identifying,
+        )
+        dataset_series.add_observation(
+            dataset_label="dataset",
+            observation=target_observation,
+            labeled_observable_property_specifications={
+                None: identifying_spec
+            },
+            cache_view=cache_view,
+        )
+
+        assert dataset_series.context_lookup("target_obs", "prop") == (
+            "dataset",
+            "subject_id",
+        )
+
     def test_apply_context(self, get_cache):
         cache_view = get_cache
         layout_id = "peh:CODEBOOK_v2.4_LAYOUT_SAMPLE_METADATA"
