@@ -245,7 +245,7 @@ class DatasetSchema:
         """
         for schema_element in self.elements.values():
             observable_property_id = schema_element.observable_property_id
-            observable_property = cache.get(
+            observable_property = cache.require(
                 observable_property_id, "ObservableProperty"
             )
             assert isinstance(observable_property, peh.ObservableProperty)
@@ -680,7 +680,7 @@ class DatasetSeries(Resource, Generic[T_DataType]):
                 observation_id = str(ULID())
                 if id_factory is not None:
                     observation_id = id_factory()
-                observable_property = cache_view.get(
+                observable_property = cache_view.require(
                     observable_property_id, "ObservableProperty"
                 )
                 assert isinstance(observable_property, peh.ObservableProperty)
@@ -703,10 +703,9 @@ class DatasetSeries(Resource, Generic[T_DataType]):
                     assert isinstance(section_id, str)
                     foreign_key_element_label = foreign_key.label
                     assert foreign_key_element_label is not None
-                    section = cache_view.get(section_id, "DataLayoutSection")
-                    assert (
-                        section is not None
-                    ), f"section with id {section_id} cannot be found"
+                    section = cache_view.require(
+                        section_id, "DataLayoutSection"
+                    )
                     foreign_key_dataset_label = section.ui_label
                     assert (
                         foreign_key_dataset_label is not None
@@ -731,7 +730,7 @@ class DatasetSeries(Resource, Generic[T_DataType]):
     ) -> DatasetSeries:
         data_layout_id = data_import_config.layout
         assert data_layout_id is not None
-        data_layout = cache_view.get(data_layout_id, "DataLayout")
+        data_layout = cache_view.require(data_layout_id, "DataLayout")
         assert isinstance(data_layout, peh.DataLayout)
         layout_label = data_layout.ui_label
         if layout_label is None:
@@ -751,7 +750,9 @@ class DatasetSeries(Resource, Generic[T_DataType]):
             assert isinstance(link, peh.DataImportSectionMappingLink)
             section_id = link.section
             assert isinstance(section_id, str)
-            layout_section = cache_view.get(section_id, "DataLayoutSection")
+            layout_section = cache_view.require(
+                section_id, "DataLayoutSection"
+            )
             assert isinstance(layout_section, peh.DataLayoutSection)
             dataset_label = layout_section.ui_label
             assert dataset_label is not None
@@ -765,13 +766,13 @@ class DatasetSeries(Resource, Generic[T_DataType]):
             assert isinstance(observation_ids, list)
             for observation_id in observation_ids:
                 # observation_observable_properties
-                observation = cache_view.get(observation_id, "Observation")
+                observation = cache_view.require(observation_id, "Observation")
                 assert isinstance(observation, peh.Observation)
                 observation_design_id = observation.observation_design
                 assert isinstance(
                     observation_design_id, peh.ObservationDesignId
                 )
-                observation_design = cache_view.get(
+                observation_design = cache_view.require(
                     observation_design_id, "ObservationDesign"
                 )
                 assert isinstance(observation_design, peh.ObservationDesign)
@@ -801,7 +802,7 @@ class DatasetSeries(Resource, Generic[T_DataType]):
                         assert element_label is not None
                         obs_prop_id = element.observable_property
                         assert isinstance(obs_prop_id, str)
-                        obs_prop = cache_view.get(
+                        obs_prop = cache_view.require(
                             obs_prop_id, "ObservableProperty"
                         )
                         assert isinstance(obs_prop, peh.ObservableProperty)
@@ -822,12 +823,9 @@ class DatasetSeries(Resource, Generic[T_DataType]):
                             assert isinstance(section_id, str)
                             foreign_key_element_label = foreign_key.label
                             assert foreign_key_element_label is not None
-                            section = cache_view.get(
+                            section = cache_view.require(
                                 section_id, "DataLayoutSection"
                             )
-                            assert (
-                                section is not None
-                            ), f"section with id {section_id} cannot be found"
                             foreign_key_dataset_label = section.ui_label
                             assert (
                                 foreign_key_dataset_label is not None
@@ -838,7 +836,7 @@ class DatasetSeries(Resource, Generic[T_DataType]):
                                 foreign_key_element_label=foreign_key_element_label,
                             )
 
-                observation = cache_view.get(observation_id)
+                observation = cache_view.require(observation_id)
                 assert isinstance(observation, peh.Observation)
                 ret.add_observation(
                     dataset_label=dataset_label,
@@ -940,7 +938,7 @@ class DatasetSeries(Resource, Generic[T_DataType]):
                 observable_property_specification.observable_property
             )
             assert isinstance(observable_property_id, str)
-            observable_property = cache_view.get(
+            observable_property = cache_view.require(
                 observable_property_id, "ObservableProperty"
             )
             assert isinstance(observable_property, peh.ObservableProperty)

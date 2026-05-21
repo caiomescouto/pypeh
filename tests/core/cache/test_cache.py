@@ -11,6 +11,7 @@ from pypeh.core.cache.containers import (
     CacheContainer,
     CacheContainerFactory,
     CacheContainerView,
+    ResourceNotFoundInCacheError,
 )
 from pypeh.core.cache.utils import load_entities_from_tree
 from pypeh.adapters.persistence.hosts import DirectoryIO
@@ -78,3 +79,24 @@ class TestCache:
         assert len(ret.observations) > 0
         assert isinstance(ret.observable_properties, list)
         assert len(ret.observable_properties) > 0
+
+    def test_get_missing_resource_returns_none(self, container):
+        assert container.get("missing-resource", "Observation") is None
+
+    def test_require_missing_resource_raises_dedicated_error(self, container):
+        with pytest.raises(ResourceNotFoundInCacheError) as exc_info:
+            container.require("missing-resource", "Observation")
+
+        assert "missing-resource" in str(exc_info.value)
+        assert "Observation" in str(exc_info.value)
+
+    def test_cache_view_require_missing_resource_raises_dedicated_error(
+        self, container
+    ):
+        cache_view = CacheContainerView(container)
+
+        with pytest.raises(ResourceNotFoundInCacheError) as exc_info:
+            cache_view.require("missing-resource", "Observation")
+
+        assert "missing-resource" in str(exc_info.value)
+        assert "Observation" in str(exc_info.value)

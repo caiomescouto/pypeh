@@ -30,6 +30,21 @@ logger = logging.getLogger(__name__)
 T_Container = TypeVar("T_Container")
 
 
+class ResourceNotFoundInCacheError(LookupError):
+    """Raised when a required PEH resource is missing from the cache."""
+
+    def __init__(self, entity_id: str, entity_type: str | None = None):
+        self.entity_id = entity_id
+        self.entity_type = entity_type
+        entity_type_label = (
+            f" of type '{entity_type}'" if entity_type is not None else ""
+        )
+        super().__init__(
+            f"Required resource{entity_type_label} with id "
+            f"'{entity_id}' was not found in the cache."
+        )
+
+
 class CacheContainer(ABC, Generic[T_Container]):
     """Abstract base class for cache backends"""
 
@@ -48,6 +63,15 @@ class CacheContainer(ABC, Generic[T_Container]):
     ) -> T_NamedThingLike:
         """Retrieve an entity"""
         pass
+
+    def require(
+        self, entity_id: str, entity_type: str | None = None
+    ) -> T_NamedThingLike:
+        """Retrieve an entity or raise when it is missing."""
+        ret = self.get(entity_id, entity_type)
+        if ret is None:
+            raise ResourceNotFoundInCacheError(entity_id, entity_type)
+        return ret
 
     @abstractmethod
     def get_all(
@@ -105,8 +129,7 @@ class CacheContainerView(Generic[T_Container]):
         if isinstance(container_subset, list):
             container_dict = defaultdict(list)
             for entity_id in container_subset:
-                entity = container.get(entity_id)
-                assert entity is not None
+                entity = container.require(entity_id)
                 entity_type = get_entity_type(entity)
                 container_dict[entity_type].append(entity_id)
             container_subset = container_dict
@@ -119,6 +142,11 @@ class CacheContainerView(Generic[T_Container]):
         self, entity_id: str, entity_type: str | None = None
     ) -> Optional[T_NamedThingLike]:
         return self._container.get(entity_id, entity_type)
+
+    def require(
+        self, entity_id: str, entity_type: str | None = None
+    ) -> T_NamedThingLike:
+        return self._container.require(entity_id, entity_type)
 
     def get_all(
         self, entity_type: str | None = None
