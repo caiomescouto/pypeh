@@ -145,3 +145,12 @@ def test_parc_aligned_study_dataops_roundtrip(
     )
 
     _assert_dataset_series_has_data(enriched_dataset_series)
+
+    dest = session.dump_tabular_dataset_series(
+        enriched_dataset_series,
+        output_path=str(tmp_path / "roundtrip"),
+        connection_label=CONNECTION_LABEL,
+        file_format="xlsx",
+    )
+    assert len(dest) == 1
+    assert dest[0].split("/")[-1] == enriched_dataset_series.label + ".xlsx"

@@ -100,15 +100,23 @@ the same arguments, logs a warning, and forwards to the import method.
 ```python
 dump_tabular_dataset_series(
     dataset_series: DatasetSeries,
-    output_path: str,
-    file_format: Literal["parquet"] = "parquet",
+    output_path: str | None = None,
+    file_format: Literal["parquet", "xlsx"] = "parquet",
     connection_label: str | None = None,
 ) -> list[str]
 ```
 
-Persist a tabular `DatasetSeries` as pypeh semantic parquet files through the
-configured connection. One parquet file is written per `Dataset`, and the
-returned list contains the written paths.
+Persist or export a tabular `DatasetSeries` through the configured connection.
+
+With `file_format="parquet"`, pypeh writes semantic parquet persistence files:
+one parquet file per `Dataset`. The returned list contains all written parquet
+paths.
+
+With `file_format="xlsx"`, pypeh writes an export-only Excel workbook: one
+workbook path is returned, and each `Dataset` becomes one worksheet containing
+the Polars dataframe from `dataset.data`. URI-like dataset labels are shortened
+to their final URI segment for worksheet names. XLSX export requires the
+`xlsxwriter` dependency and cannot be read back as a semantic `DatasetSeries`.
 
 ```python
 read_tabular_dataset_series(
@@ -122,6 +130,10 @@ read_tabular_dataset_series(
 Read pypeh semantic parquet files previously produced by
 `dump_tabular_dataset_series`. `source_paths` must be a sequence of parquet file
 paths, such as the list returned by `dump_tabular_dataset_series`.
+
+This method currently supports parquet only. XLSX files produced by
+`dump_tabular_dataset_series(..., file_format="xlsx")` are exports for
+inspection or downstream spreadsheet workflows, not semantic persistence files.
 
 ```python
 split_dataset_series_by_observation(

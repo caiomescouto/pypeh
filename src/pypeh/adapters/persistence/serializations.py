@@ -404,6 +404,17 @@ class ExcelIO(IOAdapter):
             raise
         return ExcelIOImpl().load(source, **kwargs)
 
+    def dump(self, source, file_obj: Union[str, Path, IO[bytes]], **kwargs):
+        try:
+            from pypeh.adapters.persistence.dataset_excel import (
+                dump_dataset_series_to_excel,
+            )
+        except ImportError:
+            message = "The ExcelIO class requires the dataframe export dependencies. Please install them."
+            logging.error(message)
+            raise
+        return dump_dataset_series_to_excel(source, file_obj, **kwargs)
+
 
 class RdfIO(IOAdapter):
     read_mode: str = "r"

@@ -47,6 +47,9 @@ from pypeh.adapters.persistence.dataset_parquet import (
     dump_dataset_series_to_parquet_filesystem,
     load_dataset_series_from_parquet_filesystem,
 )
+from pypeh.adapters.persistence.dataset_excel import (
+    dump_dataset_series_to_excel_filesystem,
+)
 from pypeh.core.session.connections import ConnectionManager
 from pypeh.core.utils.namespaces import NamespaceManager
 from pypeh.core.utils.resolve_identifiers import is_url
@@ -447,7 +450,7 @@ class Session(Generic[T_AdapterType, T_DataType]):
         file_system = getattr(connection, "file_system", None)
         if file_system is None:
             raise NotImplementedError(
-                "DatasetSeries parquet persistence requires a filesystem-backed "
+                "DatasetSeries tabular persistence requires a filesystem-backed "
                 "connection."
             )
         return file_system
@@ -456,17 +459,21 @@ class Session(Generic[T_AdapterType, T_DataType]):
         self,
         dataset_series: DatasetSeries[DataFrame],
         output_path: str | None = None,
-        file_format: Literal["parquet"] = "parquet",
+        file_format: Literal["parquet", "xlsx"] = "parquet",
         connection_label: str | None = None,
     ) -> list[str]:
         """
-        Dump a DatasetSeries as one pypeh semantic parquet file per Dataset.
+        Dump a tabular DatasetSeries to a supported dataframe export format.
+
+        Parquet is a pypeh semantic persistence format, written as one file per
+        Dataset. XLSX is an export-only format, written as one workbook with one
+        worksheet per Dataset.
         If output_path is omitted, files are written to the connection root.
         """
-        if file_format != "parquet":
+        if file_format not in {"parquet", "xlsx"}:
             raise NotImplementedError(
-                "Session.dump_tabular_dataset_series currently only supports "
-                f"file_format='parquet'. Got {file_format!r}."
+                "Session.dump_tabular_dataset_series currently supports "
+                f"file_format='parquet' or 'xlsx'. Got {file_format!r}."
             )
         if output_path is None:
             output_path = "./"
@@ -479,6 +486,12 @@ class Session(Generic[T_AdapterType, T_DataType]):
         ) as connection:
             destination = self._connection_path(connection, output_path)
             file_system = self._connection_file_system(connection)
+            if file_format == "xlsx":
+                return dump_dataset_series_to_excel_filesystem(
+                    dataset_series,
+                    file_system,
+                    destination,
+                )
             return dump_dataset_series_to_parquet_filesystem(
                 dataset_series,
                 file_system,

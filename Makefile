@@ -18,10 +18,6 @@ test-end_to_end_consistency:
 	uv pip install -e ".[dataframe-adapter, export-adapter, test-core]"
 	uv run pytest tests/end_to_end -m end_to_end_consistency --disable-warnings
 
-test-export:
-	uv pip install -e ".[export-adapter, test-core]"
-	uv run pytest -s tests/adapters tests/core -m export --disable-warnings
-
 test-rocrate:
 	uv pip install -e ".[rocrate-adapter, test-core]"
 	uv run pytest -s tests/adapters tests/core -m rocrate -W ignore
@@ -34,7 +30,7 @@ test-compehndly:
 	uv pip install -e ".[dataframe-adapter, test-core, compehndly]"
 	uv run pytest -s tests/end_to_end -m compehndly -W ignore
 
-test-all: test-core test-dataframe test-end_to_end test-end_to_end_consistency test-export test-s3 test-compehndly
+test-all: test-core test-dataframe test-end_to_end test-end_to_end_consistency test-s3 test-compehndly
 
 docs:
 	uv run --group docs mkdocs build --strict

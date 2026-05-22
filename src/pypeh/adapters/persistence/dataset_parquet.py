@@ -16,6 +16,10 @@ from pypeh.core.models.internal_data_layout import (
     ElementReference,
     ForeignKey,
 )
+from pypeh.adapters.persistence.filesystem import (
+    ensure_filesystem_directory,
+    join_filesystem_path,
+)
 
 
 PYPEH_DATASET_METADATA_KEY = b"pypeh.dataset.v1"
@@ -341,24 +345,6 @@ def dump_dataset_series_to_parquet(
     return outputs
 
 
-def _join_filesystem_path(file_system, *parts: str) -> str:
-    sep = getattr(file_system, "sep", "/")
-    cleaned_parts = [str(part).strip(sep) for part in parts if str(part)]
-    if not cleaned_parts:
-        return ""
-    first = str(parts[0])
-    prefix = sep if first.startswith(sep) else ""
-    return prefix + sep.join(cleaned_parts)
-
-
-def _ensure_filesystem_directory(file_system, destination: str) -> None:
-    try:
-        file_system.makedirs(destination, exist_ok=True)
-    except TypeError:
-        if not file_system.exists(destination):
-            file_system.makedirs(destination)
-
-
 def dump_dataset_series_to_parquet_filesystem(
     dataset_series: DatasetSeries,
     file_system,
@@ -367,12 +353,12 @@ def dump_dataset_series_to_parquet_filesystem(
     """
     Dump every Dataset in a DatasetSeries through an fsspec filesystem.
     """
-    _ensure_filesystem_directory(file_system, destination)
+    ensure_filesystem_directory(file_system, destination)
     outputs = []
     for dataset_label in dataset_series:
         dataset = dataset_series[dataset_label]
         assert dataset is not None
-        output_path = _join_filesystem_path(
+        output_path = join_filesystem_path(
             file_system, destination, _dataset_filename(dataset.label)
         )
         with file_system.open(output_path, "wb") as output_file:
@@ -403,7 +389,7 @@ def _parquet_files_from_filesystem(
     if file_system.isfile(source):
         return [source]
     if file_system.isdir(source):
-        pattern = _join_filesystem_path(file_system, source, "*.parquet")
+        pattern = join_filesystem_path(file_system, source, "*.parquet")
         return sorted(file_system.glob(pattern))
     raise ValueError(f"Path does not exist: {source}")
 
