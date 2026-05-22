@@ -158,17 +158,20 @@ result = session.import_tabular_dataset_series(
 Set `allow_incomplete=True` to allow missing labels while still reporting
 undefined labels.
 
-## Persist Tabular Data as Parquet
+## Persist or Export Tabular Data
 
 Use `dump_tabular_dataset_series` to persist a tabular `DatasetSeries` after it
-has been imported, validated, enriched, or otherwise prepared. The parquet
-format writes one pypeh semantic parquet file per `Dataset` in the series and
-returns the paths that were written.
+has been imported, validated, enriched, or otherwise prepared.
+
+Use `file_format="parquet"` when you need pypeh semantic persistence. The
+parquet format writes one file per `Dataset` in the series and returns the
+paths that were written.
 
 ```python
 parquet_paths = session.dump_tabular_dataset_series(
     dataset_series=dataset_series,
     output_path="exports/sample_metadata",
+    file_format="parquet",
     connection_label="local_file",
 )
 ```
@@ -184,9 +187,29 @@ restored_dataset_series = session.read_tabular_dataset_series(
 )
 ```
 
-Both methods currently support `file_format="parquet"` only. Reading validates
+Reading currently supports `file_format="parquet"` only. It validates
 foreign-key references by default; set `validate_foreign_keys=False` when
 loading a partial subset intentionally.
+
+Use `file_format="xlsx"` when you need a human-facing Excel export. The XLSX
+format writes a single workbook, with one worksheet per `Dataset`. Each
+worksheet contains the Polars dataframe stored in `dataset.data`. Dataset labels
+are used as worksheet names.
+
+```python
+xlsx_paths = session.dump_tabular_dataset_series(
+    dataset_series=dataset_series,
+    output_path="exports/sample_metadata.xlsx",
+    file_format="xlsx",
+    connection_label="local_file",
+)
+```
+
+The returned list contains one workbook path. XLSX export is not a semantic
+persistence format: it does not preserve `DatasetSeries` metadata, schemas,
+foreign-key links, or context indexes for round-tripping through
+`read_tabular_dataset_series`. Excel export requires the `xlsxwriter`
+dependency used by Polars' native `DataFrame.write_excel` support.
 
 ## Split Data by Observation
 

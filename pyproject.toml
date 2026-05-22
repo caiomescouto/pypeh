@@ -26,7 +26,6 @@ dataframe-adapter = [
 ]
 s3-adapter = ["s3fs"]
 polars-adapter=["polars", "pyarrow", "fastexcel"]
-export-adapter=["xlsxwriter"]
 compehndly=["compehndly>=0.0.1a2"]
 test-core = ["pytest>=8.2.0,<9"]
 test-dataframe=["numpy", "scipy>=1.15.3"]
@@ -43,9 +42,6 @@ test-dataframe = [
     "fastexcel",
     "numpy",
     "scipy>=1.15.3",
-]
-test-export = [
-    "xlsxwriter",
 ]
 test-rocrate = [
     "rocrate",
@@ -100,14 +96,12 @@ markers = [
     "end_to_end: tests for stateful, configuration based, end-to-end functionality",
     "end_to_end_consistency: tests for stateful, configuration based, end-to-end consitency validation",
     "integration: tests that exercise external service adapters against local mock services",
-    "export: tests for export adapters",
     "interface: tests for shared interfaces",
     "rocrate: tests for rocrate-based adapter",
 	"s3: tests for the s3 adapter",
 	"session: tests for stateful session interactions",
 	"web: tests for web IO, requires internet connection",
 	"compehndly: test with compehndly-based derived variables",
-	"other: placeholder",
 ]
 
 [tool.ruff]

@@ -4,6 +4,7 @@ from contextlib import contextmanager
 
 from pypeh import LocalFileConfig, Session
 from pypeh.adapters.persistence.hosts import DirectoryIO
+from pypeh.adapters.persistence.serializations import ExcelIO
 from pypeh.core.models.constants import ObservablePropertyValueType
 from pypeh.core.models.internal_data_layout import Dataset, DatasetSeries
 
@@ -160,3 +161,46 @@ class TestSessionParquet:
             parquet_session.read_tabular_dataset_series(
                 "series", connection_label="local_file"
             )
+
+
+@pytest.mark.dataframe
+class TestSessionExcel:
+    def test_session_dump_dataset_series_xlsx_export(
+        self, parquet_session, dataset_series
+    ):
+        pytest.importorskip("xlsxwriter")
+
+        source_paths = parquet_session.dump_tabular_dataset_series(
+            dataset_series,
+            "series.xlsx",
+            file_format="xlsx",
+            connection_label="local_file",
+        )
+
+        assert len(source_paths) == 1
+        workbook_path = source_paths[0]
+        workbook = ExcelIO().load(workbook_path)
+        assert set(workbook) == {"SAMPLE", "LAB"}
+        assert workbook["SAMPLE"].shape == (2, 1)
+        assert workbook["LAB"].shape == (2, 2)
+
+    def test_session_dump_dataset_series_xlsx_s3_like_path(
+        self, s3_like_parquet_session, dataset_series
+    ):
+        pytest.importorskip("xlsxwriter")
+
+        session, connection = s3_like_parquet_session
+
+        source_paths = session.dump_tabular_dataset_series(
+            dataset_series,
+            file_format="xlsx",
+            connection_label="data",
+        )
+
+        assert source_paths == [
+            "example-bucket/base-prefix/session_series.xlsx"
+        ]
+        assert all(not path.startswith("s3://") for path in source_paths)
+        assert all(
+            connection.file_system.exists(path) for path in source_paths
+        )
