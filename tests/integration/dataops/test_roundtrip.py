@@ -20,8 +20,11 @@ CONNECTION_LABEL = "local_file"
 DATA_IMPORT_CONFIG_ID = (
     "https://w3id.org/peh/id/data-import-config/" "01KMYXDM0D3BMZTKC93YR0MEJQ"
 )
-OBSERVATION_GROUP_ID = (
+ENRICHMENT_OBSERVATION_GROUP_ID = (
     "https://w3id.org/peh/id/observation-group/" "01KMYXDM0D4BMZTKC93YR0MPJV"
+)
+AGGREGATION_OBSERVATION_GROUP_ID = (
+    "https://w3id.org/peh/id/observation-group/" "basic-aggregation-test"
 )
 EXCEL_SOURCE = "DataExample_PARC_ALIGNED_STUDIES_ADULTS.xlsx"
 
@@ -136,7 +139,9 @@ def test_parc_aligned_study_dataops_roundtrip(
     )
 
     target_observations, source_observations = zip(
-        *session.unpack_derived_observation_group(OBSERVATION_GROUP_ID)
+        *session.unpack_derived_observation_group(
+            ENRICHMENT_OBSERVATION_GROUP_ID
+        )
     )
     enriched_dataset_series = session.enrich(
         loaded_dataset_series,
@@ -154,3 +159,17 @@ def test_parc_aligned_study_dataops_roundtrip(
     )
     assert len(dest) == 1
     assert dest[0].split("/")[-1] == enriched_dataset_series.label + ".xlsx"
+
+    target_observations, source_observations = zip(
+        *session.unpack_derived_observation_group(
+            AGGREGATION_OBSERVATION_GROUP_ID
+        )
+    )
+    print(target_observations)
+    print(source_observations)
+    aggregated_dataset_series = session.aggregate(
+        source_dataset_series=enriched_dataset_series,
+        target_observations=list(target_observations),
+        target_derived_from=list(source_observations),
+    )
+    _assert_dataset_series_has_data(aggregated_dataset_series)

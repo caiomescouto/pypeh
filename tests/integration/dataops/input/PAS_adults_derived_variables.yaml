@@ -176,3 +176,24 @@ observable_properties:
         contextual_field_reference:
           dataset_label: https://w3id.org/peh/id/derived-observation/01KMYXDM0D4BMZTKC93YR0MEJV
           field_label: https://w3id.org/peh/id/observable-property/01KQWBY3RDD2A90FY2GVSPFMVV
+- id: https://w3id.org/peh/id/observable-property/basic-aggregation-test
+  short_name: dona_lip_mean
+  name: adults|bloodserum_lab|dona_lip_mean
+  ui_label: dona_lip_mean
+  value_type: decimal
+  categorical: false
+  multivalued: false
+  required: false
+  zeroallowed: true
+  significantdecimals: 6
+  observation_result_type: calculation
+  relevant_observation_types:
+  - sampling
+  calculation_design:
+    calculation_name: mean
+    calculation_implementation:
+      function_name: pypeh.adapters.aggregation.polars_adapter.statistics.statistics_mean
+      function_kwargs:
+      - contextual_field_reference:
+          dataset_label: https://w3id.org/peh/id/derived-observation/01KMYXDM0D4BMZTKC93YR0MEJV
+          field_label: https://w3id.org/peh/id/observable-property/01KQWBY3RDD2A91FY3GVSPFMVV

@@ -12,6 +12,10 @@ observation_groups:
   - https://w3id.org/peh/id/observation/01KMYXDM0D3BMZTKC93YR0MEJM
   - https://w3id.org/peh/id/observation/01KMYXDM0D3BMZTKC93YR0MEJP
   - https://w3id.org/peh/id/derived-observation/01KMYXDM0D4BMZTKC93YR0MEJV
+- id: https://w3id.org/peh/id/observation-group/basic-aggregation-test
+  name: TEST_STUDY|adults|AGGREGATED
+  observation_id_list:
+  - https://w3id.org/peh/id/derived-observation/basic-aggregation-test
 observations:
 - id: https://w3id.org/peh/id/observation/01KMYXDM0D3BMZTKC93YR0MEJM
   name: TEST_STUDY|adults
@@ -27,7 +31,20 @@ derived_observations:
   ui_label: adults_derived
   observation_design: https://w3id.org/peh/id/observation-design/01KMYXDM0D4BMZTKC93YR0MDVK
   was_derived_from: https://w3id.org/peh/id/observation/01KMYXDM0D3BMZTKC93YR0MEJM
+- id: https://w3id.org/peh/id/derived-observation/basic-aggregation-test
+  name: TEST_STUDY|adults_aggregated
+  ui_label: adults_aggregated
+  observation_design: https://w3id.org/peh/id/observation-design/basic-aggregation-test
+  was_derived_from: https://w3id.org/peh/id/derived-observation/01KMYXDM0D4BMZTKC93YR0MEJV
 observation_designs:
+- id: https://w3id.org/peh/id/observation-design/basic-aggregation-test
+  name: TEST_STUDY|adults_aggregated
+  ui_label: adults_aggregated_design
+  observation_result_type: calculation
+  observable_entity_type: person
+  observable_property_specifications:
+  - observable_property: https://w3id.org/peh/id/observable-property/basic-aggregation-test
+    specification_category: derived
 - id: https://w3id.org/peh/id/observation-design/01KMYXDM0D3BMZTKC93YR0MEJN
   name: TEST_STUDY|adults_analyticalinfo|design
   ui_label: adults_analyticalinfo design
