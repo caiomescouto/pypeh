@@ -717,10 +717,12 @@ class Session(Generic[T_AdapterType, T_DataType]):
     ) -> DatasetSeries[T_DataType]:
         """Split a DatasetSeries into observation-specific datasets."""
         adapter = self.get_adapter(adapter_label)
+        cache_view = CacheContainerView(self.cache)
         assert isinstance(adapter, DataOpsInterface)
         ret = adapter.split_by_observation(
             dataset_series=source_dataset_series,
             new_label=new_dataset_series_label,
+            cache_view=cache_view,
         )
         assert isinstance(ret, DatasetSeries)
         return ret

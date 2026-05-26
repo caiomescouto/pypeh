@@ -15,9 +15,11 @@ from abc import abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
 from peh_model import peh
-from typing import TYPE_CHECKING, Callable, Generic, Literal
+from typing import TYPE_CHECKING, Callable, Generic, Literal, Sequence
 
-from pypeh.core.cache.containers import CacheContainerView
+from pypeh.core.cache.containers import (
+    CacheContainerView,
+)
 from pypeh.core.models.constants import ObservablePropertyValueType
 from pypeh.core.models.internal_data_layout import (
     Dataset,
@@ -31,7 +33,7 @@ from pypeh.core.models import graph, validation_dto
 from pypeh.core.utils.function_utils import _extract_callable
 
 if TYPE_CHECKING:
-    from typing import Sequence, Any
+    from typing import Any
     from pypeh.core.models.validation_errors import ValidationErrorReport
 
 logger = logging.getLogger(__name__)
@@ -531,17 +533,13 @@ class DataOpsInterface(Generic[T_DataType]):
         source_series: DatasetSeries[T_DataType],
         observation_id: str,
         source_dataset_labels: list[str],
+        target_dataset_label: str,
         observable_property_context: dict[str, tuple[str, str]],
         final_fields_by_observable_property: dict[str, str],
         final_data: T_DataType,
     ) -> None:
-        output_dataset_label = self._build_unique_label(
-            observation_id,
-            set(target_series.parts.keys()),
-            dataset_label="observation",
-        )
         output_dataset = target_series.add_empty_dataset(
-            output_dataset_label,
+            target_dataset_label,
             metadata={
                 "source_datasets": source_dataset_labels,
                 "observation_id": observation_id,
@@ -578,11 +576,51 @@ class DataOpsInterface(Generic[T_DataType]):
 
         output_dataset.data = final_data
 
+    @staticmethod
+    def _resolve_observation_dataset_label(
+        observation: peh.Observation,
+        fallback_id: str,
+    ) -> str:
+        for label_field in ("ui_label", "short_name"):
+            label = getattr(observation, label_field, None)
+            if isinstance(label, str) and len(label) > 0:
+                return label
+        return fallback_id
+
+    def _build_target_dataset_labels_by_observation(
+        self,
+        observation_ids: Sequence[str],
+        cache_view: CacheContainerView,
+    ) -> dict[str, str]:
+        labels_by_observation: dict[str, str] = {}
+        observation_by_label: dict[str, str] = {}
+
+        for observation_id in observation_ids:
+            observation = cache_view.require(observation_id)
+            assert isinstance(observation, peh.Observation)
+            label = self._resolve_observation_dataset_label(
+                observation, fallback_id=observation_id
+            )
+
+            if label in observation_by_label:
+                raise ValueError(
+                    "Observation labels used as split dataset labels must be "
+                    f"unique. Label '{label}' resolved for observations "
+                    f"'{observation_by_label[label]}' and "
+                    f"'{observation_id}'."
+                )
+
+            labels_by_observation[observation_id] = label
+            observation_by_label[label] = observation_id
+
+        return labels_by_observation
+
     def split_by_observation(
         self,
         dataset_series: DatasetSeries[T_DataType],
         *,
         new_label: str | None = None,
+        cache_view: CacheContainerView | None = None,
     ) -> DatasetSeries[T_DataType]:
         """
         Return a new DatasetSeries where each Dataset maps to exactly one Observation.
@@ -603,6 +641,14 @@ class DataOpsInterface(Generic[T_DataType]):
         )
 
         observation_ids = sorted(dataset_series._obs_index.keys())
+        target_dataset_labels: dict[str, str] | None = None
+        if cache_view is not None:
+            target_dataset_labels = (
+                self._build_target_dataset_labels_by_observation(
+                    observation_ids, cache_view
+                )
+            )
+
         for observation_id in observation_ids:
             source_dataset_labels = sorted(
                 dataset_series._obs_index.get(observation_id, set())
@@ -679,11 +725,18 @@ class DataOpsInterface(Generic[T_DataType]):
             ]
             final_data = self.subset(joined_data, element_group=final_fields)
 
+            target_dataset_label = (
+                target_dataset_labels[observation_id]
+                if target_dataset_labels is not None
+                else observation_id
+            )
+
             self._build_output_dataset_for_observation(
                 target_series=ret,
                 source_series=dataset_series,
                 observation_id=observation_id,
                 source_dataset_labels=source_dataset_labels,
+                target_dataset_label=target_dataset_label,
                 observable_property_context=observable_property_context,
                 final_fields_by_observable_property=final_fields_by_observable_property,
                 final_data=final_data,

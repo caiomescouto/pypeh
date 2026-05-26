@@ -78,6 +78,7 @@ class DataOpsProtocol(Protocol, Generic[T_DataType]):
         dataset_series: DatasetSeries[T_DataType],
         *,
         new_label: str | None = None,
+        cache_view: CacheContainerView | None = None,
     ) -> DatasetSeries[T_DataType]: ...
 
     def enrich(
@@ -1018,6 +1019,96 @@ class TestDatasetSeriesMods(abc.ABC):
         assert len(split_series.parts["obs:1"].observation_ids) == 1
         assert len(split_series.parts["obs:2"].observation_ids) == 1
         self.verify_join_and_single_dataset(split_series, adapter)
+
+    def test_split_by_observation_uses_observation_label_from_cache(self):
+        adapter = self.get_adapter()
+        dataset_series = DatasetSeries(label="labeled_split_case")
+        dataset = dataset_series.add_empty_dataset("source")
+        dataset.add_observation_to_index("obs:ui")
+        dataset.add_observation_to_index("obs:short")
+        dataset.add_observable_property(
+            observable_property_id="id_prop",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="id",
+            is_primary_key=True,
+        )
+        dataset.add_observable_property(
+            observable_property_id="measure_prop",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="left_measure",
+        )
+        dataset_series._register_observable_property(
+            "id_prop", "obs:ui", "source", "id"
+        )
+        dataset_series._register_observable_property(
+            "measure_prop", "obs:ui", "source", "left_measure"
+        )
+        dataset_series._register_observable_property(
+            "id_prop", "obs:short", "source", "id"
+        )
+        dataset_series._register_observable_property(
+            "measure_prop", "obs:short", "source", "left_measure"
+        )
+
+        left_data, _ = self.mixed_join_and_single_dataset_data()
+        dataset.data = adapter.subset(
+            left_data, element_group=["id", "left_measure"]
+        )
+
+        container = CacheContainerFactory.new()
+        container.add(
+            Observation(
+                id="obs:ui",
+                ui_label="friendly_observation",
+                short_name="short_observation",
+            )
+        )
+        container.add(Observation(id="obs:short", short_name="short_only"))
+        cache_view = CacheContainerView(container)
+
+        split_series = adapter.split_by_observation(
+            dataset_series, cache_view=cache_view
+        )
+
+        assert set(split_series.parts) == {
+            "friendly_observation",
+            "short_only",
+        }
+        assert split_series.context_lookup("obs:ui", "measure_prop")[0] == (
+            "friendly_observation"
+        )
+        assert split_series.context_lookup("obs:short", "measure_prop")[0] == (
+            "short_only"
+        )
+
+    def test_split_by_observation_rejects_duplicate_cache_labels(self):
+        adapter = self.get_adapter()
+        dataset_series = DatasetSeries(label="duplicate_label_split_case")
+        dataset = dataset_series.add_empty_dataset("source")
+        dataset.add_observation_to_index("obs:one")
+        dataset.add_observation_to_index("obs:two")
+        dataset.add_observable_property(
+            observable_property_id="id_prop",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="id",
+            is_primary_key=True,
+        )
+        dataset_series._register_observable_property(
+            "id_prop", "obs:one", "source", "id"
+        )
+        dataset_series._register_observable_property(
+            "id_prop", "obs:two", "source", "id"
+        )
+        left_data, _ = self.mixed_join_and_single_dataset_data()
+        dataset.data = adapter.subset(left_data, element_group=["id"])
+
+        container = CacheContainerFactory.new()
+        container.add(Observation(id="obs:one", ui_label="duplicate"))
+        container.add(Observation(id="obs:two", ui_label="duplicate"))
+        cache_view = CacheContainerView(container)
+
+        with pytest.raises(ValueError, match="must be unique"):
+            adapter.split_by_observation(dataset_series, cache_view=cache_view)
 
 
 class TestEnrichment(abc.ABC):
