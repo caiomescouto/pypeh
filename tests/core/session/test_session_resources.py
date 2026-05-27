@@ -262,11 +262,13 @@ class RecordingEnrichmentAdapter(DataEnrichmentInterface):
         dataset_series: DatasetSeries,
         *,
         new_label: str | None = None,
+        cache_view: CacheContainerView | None = None,
     ) -> DatasetSeries:
         self.calls.append(
             {
                 "dataset_series": dataset_series,
                 "new_label": new_label,
+                "cache_view": cache_view,
             }
         )
         return self._result
@@ -447,6 +449,8 @@ class TestSessionSplitDatasetSeriesByObservation:
         call = adapter.calls[0]
         assert call["dataset_series"] is source_dataset_series
         assert call["new_label"] == "custom_split"
+        assert isinstance(call["cache_view"], CacheContainerView)
+        assert call["cache_view"]._container is session.cache
 
     def test_split_dataset_series_by_observation_uses_default_label(self):
         session = get_session()
@@ -464,3 +468,5 @@ class TestSessionSplitDatasetSeriesByObservation:
         call = adapter.calls[0]
         assert call["dataset_series"] is source_dataset_series
         assert call["new_label"] is None
+        assert isinstance(call["cache_view"], CacheContainerView)
+        assert call["cache_view"]._container is session.cache
