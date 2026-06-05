@@ -1,4 +1,5 @@
 import pytest
+import importlib
 import re
 
 from pypeh.adapters.persistence.hosts import DirectoryIO
@@ -33,14 +34,10 @@ class TestBasicValidationConfig:
         return CacheContainerView(container)
 
     def get_adapter(self) -> DataOpsInterface:
-        try:
-            from pypeh.adapters.validation.pandera_adapter import (
-                validation_adapter as dfops,
-            )
-
-            return dfops.DataFrameValidationAdapter()  # type: ignore
-        except ImportError:
-            pytest.skip("Necessary modules not installed")
+        dfops = importlib.import_module(
+            "pypeh.adapters.validation.pandera_adapter.validation_adapter"
+        )
+        return dfops.DataFrameValidationAdapter()  # type: ignore
 
     def test_config_from_dataset(self, get_cache):
         dataops_adapter_class = ValidationInterface.get_default_adapter_class()

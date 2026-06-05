@@ -1,6 +1,6 @@
 [project]
 name = "pypeh"
-version = "0.3.5"
+version = "0.3.6"
 description = "A modular project with a core library and multiple adapters"
 authors = [{ name = "VITO Health DMT" }]
 requires-python = ">=3.10, <4.0.0"
@@ -29,7 +29,8 @@ polars-adapter=["polars", "pyarrow", "fastexcel"]
 compehndly=["compehndly>=0.0.1a2"]
 test-core = ["pytest>=8.2.0,<9"]
 test-dataframe=["numpy", "scipy>=1.15.3"]
-test-s3 = ["s3fs", "moto[s3]"]
+test-s3 = ["s3fs", "moto[s3,server]"]
+xlsxwriter = ["polars[xlsxwriter]"]
 
 [dependency-groups]
 test-core = [
@@ -102,6 +103,8 @@ markers = [
 	"session: tests for stateful session interactions",
 	"web: tests for web IO, requires internet connection",
 	"compehndly: test with compehndly-based derived variables",
+    "xlsx: tests with xlsx format output",
+    "other: placeholder for additional interface-level tests",
 ]
 
 [tool.ruff]

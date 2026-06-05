@@ -30,6 +30,11 @@ test-compehndly:
 	uv pip install -e ".[dataframe-adapter, test-core, compehndly]"
 	uv run pytest -s tests/end_to_end -m compehndly -W ignore
 
+test-xlsx:
+	uv pip install -e ".[dataframe-adapter, test-core, test-dataframe, xlsxwriter]"
+	uv run pytest -s -vv tests/adapters -m xlsx --disable-warnings
+	uv run pytest -s -vv tests/core -m xlsx --disable-warnings
+
 test-all: test-core test-dataframe test-end_to_end test-end_to_end_consistency test-s3 test-compehndly
 
 docs:

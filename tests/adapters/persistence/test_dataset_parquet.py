@@ -1,3 +1,5 @@
+import importlib
+
 import pytest
 
 from pypeh.adapters.persistence.dataset_parquet import (
@@ -15,7 +17,7 @@ pytestmark = pytest.mark.dataframe
 
 @pytest.fixture
 def dataset_series():
-    pl = pytest.importorskip("polars")
+    pl = importlib.import_module("polars")
 
     series = DatasetSeries(label="example_series")
 
@@ -139,7 +141,7 @@ def test_dataset_series_load_raises_for_missing_foreign_dataset(
 
 
 def test_dataset_series_roundtrip_with_fsspec_filesystem(dataset_series):
-    fsspec = pytest.importorskip("fsspec")
+    fsspec = importlib.import_module("fsspec")
     file_system = fsspec.filesystem("memory")
 
     outputs = dump_dataset_series_to_parquet_filesystem(

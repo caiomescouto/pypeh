@@ -1,5 +1,6 @@
 import pytest
 import abc
+import importlib
 import re
 
 from datetime import date
@@ -1233,14 +1234,10 @@ class TestDataFrameDataOps(
     __test__ = True
 
     def get_adapter(self) -> DataOpsProtocol:
-        try:
-            from pypeh.adapters.validation.pandera_adapter import (
-                validation_adapter as dfops,
-            )
-
-            return dfops.DataFrameValidationAdapter()  # type: ignore
-        except ImportError:
-            pytest.skip("Necessary modules not installed")
+        dfops = importlib.import_module(
+            "pypeh.adapters.validation.pandera_adapter.validation_adapter"
+        )
+        return dfops.DataFrameValidationAdapter()  # type: ignore
 
     @pytest.fixture(scope="function")
     def raw_data(self):
@@ -1358,14 +1355,10 @@ class TestDataFrameEnrichment(TestEnrichment):
     __test__ = True
 
     def get_adapter(self) -> DataOpsProtocol:
-        try:
-            from pypeh.adapters.enrichment import (
-                dataframe_adapter as dfops,
-            )
-
-            return dfops.DataFrameEnrichmentAdapter()  # type: ignore
-        except ImportError:
-            pytest.skip("Necessary modules not installed")
+        dfops = importlib.import_module(
+            "pypeh.adapters.enrichment.dataframe_adapter"
+        )
+        return dfops.DataFrameEnrichmentAdapter()  # type: ignore
 
     def raw_data(self) -> dict:
         import polars as pl
@@ -1528,14 +1521,10 @@ class TestDataFrameAggregation(TestAggregation):
     __test__ = True
 
     def get_adapter(self) -> DataOpsProtocol:
-        try:
-            from pypeh.adapters.aggregation.polars_adapter import (
-                dataframe_adapter as dfops,
-            )
-
-            return dfops.DataFrameAggregationAdapter()  # type: ignore
-        except ImportError:
-            pytest.skip("Necessary modules not installed")
+        dfops = importlib.import_module(
+            "pypeh.adapters.aggregation.polars_adapter.dataframe_adapter"
+        )
+        return dfops.DataFrameAggregationAdapter()  # type: ignore
 
     def raw_data(self) -> dict:
         import polars as pl
