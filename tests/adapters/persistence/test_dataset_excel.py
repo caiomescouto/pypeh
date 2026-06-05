@@ -1,4 +1,5 @@
 import io
+import importlib
 from zipfile import ZipFile
 
 import pytest
@@ -12,7 +13,7 @@ from pypeh.core.models.internal_data_layout import DatasetSeries
 
 @pytest.fixture
 def excel_dataset_series():
-    pl = pytest.importorskip("polars")
+    pl = importlib.import_module("polars")
 
     series = DatasetSeries(label="https://example.org/export/session")
     sample = series.add_empty_dataset("https://example.org/datasets/SAMPLE")
@@ -36,12 +37,12 @@ def _workbook_sheet_names(workbook_bytes: bytes) -> list[str]:
     return names
 
 
-@pytest.mark.dataframe
+@pytest.mark.xlsx
 class TestDatasetSeriesExcelExport:
     def test_dump_dataset_series_to_excel_writes_one_sheet_per_dataset(
         self, excel_dataset_series
     ):
-        pytest.importorskip("xlsxwriter")
+        importlib.import_module("xlsxwriter")
 
         buffer = io.BytesIO()
         outputs = dump_dataset_series_to_excel(excel_dataset_series, buffer)
@@ -55,7 +56,7 @@ class TestDatasetSeriesExcelExport:
         assert workbook["LAB"].shape == (2, 2)
 
     def test_dump_dataset_series_to_excel_rejects_non_dataframe_data(self):
-        pytest.importorskip("xlsxwriter")
+        importlib.import_module("xlsxwriter")
 
         series = DatasetSeries(label="series")
         dataset = series.add_empty_dataset("INVALID")
@@ -65,8 +66,8 @@ class TestDatasetSeriesExcelExport:
             dump_dataset_series_to_excel(series, io.BytesIO())
 
     def test_dump_dataset_series_to_excel_deduplicates_sheet_names(self):
-        pytest.importorskip("xlsxwriter")
-        pl = pytest.importorskip("polars")
+        importlib.import_module("xlsxwriter")
+        pl = importlib.import_module("polars")
 
         series = DatasetSeries(label="series")
         first = series.add_empty_dataset("https://example.org/datasets/SAMPLE")

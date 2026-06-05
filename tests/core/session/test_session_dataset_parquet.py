@@ -1,3 +1,5 @@
+import importlib
+
 import pytest
 
 from contextlib import contextmanager
@@ -44,7 +46,7 @@ def s3_like_parquet_session():
 
 @pytest.fixture
 def dataset_series():
-    pl = pytest.importorskip("polars")
+    pl = importlib.import_module("polars")
 
     series = DatasetSeries(label="session_series")
     sample = series.add_empty_dataset("SAMPLE")
@@ -163,12 +165,12 @@ class TestSessionParquet:
             )
 
 
-@pytest.mark.dataframe
+@pytest.mark.xlsx
 class TestSessionExcel:
     def test_session_dump_dataset_series_xlsx_export(
         self, parquet_session, dataset_series
     ):
-        pytest.importorskip("xlsxwriter")
+        importlib.import_module("xlsxwriter")
 
         source_paths = parquet_session.dump_tabular_dataset_series(
             dataset_series,
@@ -187,7 +189,7 @@ class TestSessionExcel:
     def test_session_dump_dataset_series_xlsx_s3_like_path(
         self, s3_like_parquet_session, dataset_series
     ):
-        pytest.importorskip("xlsxwriter")
+        importlib.import_module("xlsxwriter")
 
         session, connection = s3_like_parquet_session
 

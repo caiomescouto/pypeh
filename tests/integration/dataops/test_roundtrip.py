@@ -1,3 +1,5 @@
+import importlib
+
 from pathlib import Path
 
 import peh_model.peh as peh
@@ -37,9 +39,9 @@ CACHE_SOURCES = (
 
 @pytest.fixture
 def dataframe_dependencies():
-    pytest.importorskip("polars")
-    pytest.importorskip("fastexcel")
-    pytest.importorskip("pandera")
+    importlib.import_module("polars")
+    importlib.import_module("fastexcel")
+    importlib.import_module("pandera")
 
 
 @pytest.fixture

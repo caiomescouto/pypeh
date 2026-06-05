@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+
 import pytest
 
 from pypeh import S3Config, Session
@@ -9,7 +11,7 @@ from pypeh.core.models.internal_data_layout import Dataset, DatasetSeries
 
 @pytest.fixture
 def dataset_series():
-    pl = pytest.importorskip("polars")
+    pl = importlib.import_module("polars")
 
     series = DatasetSeries(label="moto_session_series")
     sample = series.add_empty_dataset("SAMPLE")
@@ -54,7 +56,7 @@ def dataset_series():
 
 @pytest.fixture
 def moto_s3_endpoint():
-    moto_server = pytest.importorskip("moto.server")
+    moto_server = importlib.import_module("moto.server")
 
     server = moto_server.ThreadedMotoServer(
         ip_address="127.0.0.1",
@@ -69,7 +71,7 @@ def moto_s3_endpoint():
 
 @pytest.fixture
 def moto_s3_client(moto_s3_endpoint):
-    boto3 = pytest.importorskip("boto3")
+    boto3 = importlib.import_module("boto3")
 
     return boto3.client(
         "s3",
