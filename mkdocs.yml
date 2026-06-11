@@ -12,6 +12,7 @@ nav:
   - Session API:
       - Overview: session.md
       - Reference: session-reference.md
+  - Configuration: configuration.md
   - Core Concepts: core.md
   - Adapters: adapters.md
 
