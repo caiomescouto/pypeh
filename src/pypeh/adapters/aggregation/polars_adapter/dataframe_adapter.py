@@ -1,3 +1,4 @@
+import inspect
 from functools import reduce
 from itertools import chain
 from typing import Callable
@@ -52,26 +53,41 @@ class DataFrameAggregationAdapter(
         value_col: str,
         stat_builders: list[str],
         result_aliases: list[str] | None = None,
+        stat_kwargs: list[dict] | None = None,
         **kwargs,
     ) -> pl.LazyFrame:
-        if result_aliases is not None:
-            exprs = list(
-                chain.from_iterable(
-                    self._get_stat_function(expr)(
-                        value_col, result_alias=result_alias, **kwargs
-                    )
-                    for expr, result_alias in zip(
-                        stat_builders, result_aliases
-                    )
+        if stat_kwargs is None:
+            stat_kwargs = [{} for _ in stat_builders]
+        if len(stat_kwargs) != len(stat_builders):
+            raise ValueError(
+                "stat_kwargs must contain one kwargs mapping per stat builder."
+            )
+
+        result_alias_iter = (
+            result_aliases
+            if result_aliases is not None
+            else [None for _ in stat_builders]
+        )
+        if len(result_alias_iter) != len(stat_builders):
+            raise ValueError(
+                "result_aliases must contain one alias per stat builder."
+            )
+
+        exprs = list(
+            chain.from_iterable(
+                self._call_stat_function(
+                    stat_builder,
+                    value_col,
+                    result_alias=result_alias,
+                    stat_kwargs={**kwargs, **per_stat_kwargs},
+                )
+                for stat_builder, result_alias, per_stat_kwargs in zip(
+                    stat_builders,
+                    result_alias_iter,
+                    stat_kwargs,
                 )
             )
-        else:
-            exprs = list(
-                chain.from_iterable(
-                    self._get_stat_function(expr)(value_col, **kwargs)
-                    for expr in stat_builders
-                )
-            )
+        )
 
         if not group_cols:
             return df.select(exprs)
@@ -88,6 +104,45 @@ class DataFrameAggregationAdapter(
             return fn
         else:
             raise ValueError(f"Invalid function specification: {fn}")
+
+    def _filter_stat_kwargs(self, fn: Callable, kwargs: dict) -> dict:
+        signature = inspect.signature(fn)
+        if any(
+            param.kind == inspect.Parameter.VAR_KEYWORD
+            for param in signature.parameters.values()
+        ):
+            return kwargs
+
+        accepted_kwargs = {
+            name
+            for name, param in signature.parameters.items()
+            if param.kind
+            in {
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
+            }
+        }
+        return {
+            name: value
+            for name, value in kwargs.items()
+            if name in accepted_kwargs
+        }
+
+    def _call_stat_function(
+        self,
+        stat_builder: str | Callable,
+        value_col: str,
+        result_alias: str | None,
+        stat_kwargs: dict,
+    ) -> list[pl.Expr]:
+        fn = self._get_stat_function(stat_builder)
+        if result_alias is not None:
+            stat_kwargs = {
+                **stat_kwargs,
+                "result_alias": result_alias,
+            }
+
+        return fn(value_col, **self._filter_stat_kwargs(fn, stat_kwargs))
 
     def group_results(
         self,
