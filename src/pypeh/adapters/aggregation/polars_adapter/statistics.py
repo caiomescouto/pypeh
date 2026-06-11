@@ -3,6 +3,36 @@ from typing import Callable
 import polars as pl
 
 
+def _validate_cutoff(cutoff: float | None) -> None:
+    if cutoff is None:
+        return
+    if not 0 <= cutoff <= 1:
+        raise ValueError("cutoff must be between 0 and 1")
+
+
+def _sufficient_values(value_col: str, cutoff: float) -> pl.Expr:
+    non_null_n = pl.col(value_col).is_not_null().sum()
+    return (pl.len() > 0) & ((non_null_n / pl.len()) >= cutoff)
+
+
+def _alias_with_cutoff(
+    value_col: str,
+    expr: pl.Expr,
+    result_alias: str,
+    cutoff: float | None,
+) -> pl.Expr:
+    _validate_cutoff(cutoff)
+    if cutoff is None:
+        return expr.alias(result_alias)
+
+    return (
+        pl.when(_sufficient_values(value_col, cutoff))
+        .then(expr)
+        .otherwise(None)
+        .alias(result_alias)
+    )
+
+
 def stat_count(
     value_col: str,
     *,
@@ -47,6 +77,47 @@ def statistics_count_missing_pct(
     ]
 
 
+def stat_count_below(
+    value_col: str,
+    below_col: str,
+    *,
+    result_aliases: list[str] = ["below_n", "below_pct"],
+) -> list[pl.Expr]:
+    below_n = (pl.col(value_col) < pl.col(below_col)).sum()
+    return [
+        below_n.alias(result_aliases[0]),
+        (below_n / pl.len()).alias(result_aliases[1]),
+    ]
+
+
+def statistics_count_below_n(
+    value_cont: str,
+    below_col: str,
+    result_alias: str = "below_n",
+) -> list[pl.Expr]:
+    return [
+        stat_count_below(
+            value_cont,
+            below_col,
+            result_aliases=[result_alias, "below_pct"],
+        )[0].alias(result_alias)
+    ]
+
+
+def statistics_count_below_pct(
+    value_cont: str,
+    below_col: str,
+    result_alias: str = "below_pct",
+) -> list[pl.Expr]:
+    return [
+        stat_count_below(
+            value_cont,
+            below_col,
+            result_aliases=["below_n", result_alias],
+        )[1].alias(result_alias)
+    ]
+
+
 def stat_arithmetic(
     value_col: str,
     *,
@@ -57,21 +128,30 @@ def stat_arithmetic(
         "mean_95_ci_lower",
         "mean_95_ci_upper",
     ],
+    cutoff: float | None = None,
 ) -> list[pl.Expr]:
     n = pl.col(value_col).is_finite().sum()
     mean = pl.col(value_col).mean()
     sem = pl.col(value_col).std() / n.sqrt()
     return [
-        mean.alias(result_aliases[0]),
-        pl.col(value_col).std().alias(result_aliases[1]),
-        sem.alias(result_aliases[2]),
-        (mean - 1.96 * sem).alias(result_aliases[3]),
-        (mean + 1.96 * sem).alias(result_aliases[4]),
+        _alias_with_cutoff(value_col, mean, result_aliases[0], cutoff),
+        _alias_with_cutoff(
+            value_col, pl.col(value_col).std(), result_aliases[1], cutoff
+        ),
+        _alias_with_cutoff(value_col, sem, result_aliases[2], cutoff),
+        _alias_with_cutoff(
+            value_col, mean - 1.96 * sem, result_aliases[3], cutoff
+        ),
+        _alias_with_cutoff(
+            value_col, mean + 1.96 * sem, result_aliases[4], cutoff
+        ),
     ]
 
 
 def statistics_mean(
-    value_cont: str, result_alias: str = "mean"
+    value_cont: str,
+    result_alias: str = "mean",
+    cutoff: float | None = None,
 ) -> list[pl.Expr]:
     return [
         stat_arithmetic(
@@ -83,11 +163,16 @@ def statistics_mean(
                 "mean_95_ci_lower",
                 "mean_95_ci_upper",
             ],
+            cutoff=cutoff,
         )[0].alias(result_alias)
     ]
 
 
-def statistics_st(value_cont: str, result_alias: str = "st") -> list[pl.Expr]:
+def statistics_st(
+    value_cont: str,
+    result_alias: str = "st",
+    cutoff: float | None = None,
+) -> list[pl.Expr]:
     return [
         stat_arithmetic(
             value_cont,
@@ -98,12 +183,15 @@ def statistics_st(value_cont: str, result_alias: str = "st") -> list[pl.Expr]:
                 "mean_95_ci_lower",
                 "mean_95_ci_upper",
             ],
+            cutoff=cutoff,
         )[1].alias(result_alias)
     ]
 
 
 def statistics_sem(
-    value_cont: str, result_alias: str = "sem"
+    value_cont: str,
+    result_alias: str = "sem",
+    cutoff: float | None = None,
 ) -> list[pl.Expr]:
     return [
         stat_arithmetic(
@@ -115,12 +203,15 @@ def statistics_sem(
                 "mean_95_ci_lower",
                 "mean_95_ci_upper",
             ],
+            cutoff=cutoff,
         )[2].alias(result_alias)
     ]
 
 
 def statistics_mean_95_ci_lower(
-    value_cont: str, result_alias: str = "mean_95_ci_lower"
+    value_cont: str,
+    result_alias: str = "mean_95_ci_lower",
+    cutoff: float | None = None,
 ) -> list[pl.Expr]:
     return [
         stat_arithmetic(
@@ -132,12 +223,15 @@ def statistics_mean_95_ci_lower(
                 result_alias,
                 "mean_95_ci_upper",
             ],
+            cutoff=cutoff,
         )[3].alias(result_alias)
     ]
 
 
 def statistics_mean_95_ci_upper(
-    value_cont: str, result_alias: str = "mean_95_ci_upper"
+    value_cont: str,
+    result_alias: str = "mean_95_ci_upper",
+    cutoff: float | None = None,
 ) -> list[pl.Expr]:
     return [
         stat_arithmetic(
@@ -149,6 +243,7 @@ def statistics_mean_95_ci_upper(
                 "mean_95_ci_lower",
                 result_alias,
             ],
+            cutoff=cutoff,
         )[4].alias(result_alias)
     ]
 
@@ -161,19 +256,34 @@ def stat_geometric(
         "geom_mean_95_ci_lower",
         "geom_mean_95_ci_upper",
     ],
+    cutoff: float | None = None,
 ) -> list[pl.Expr]:
     n = pl.col(value_col).is_finite().sum()
     log_mean = pl.col(value_col).log().mean()
     se = pl.col(value_col).log().std() / n.sqrt()
     return [
-        log_mean.exp().alias(result_aliases[0]),
-        (log_mean - 1.96 * se).exp().alias(result_aliases[1]),
-        (log_mean + 1.96 * se).exp().alias(result_aliases[2]),
+        _alias_with_cutoff(
+            value_col, log_mean.exp(), result_aliases[0], cutoff
+        ),
+        _alias_with_cutoff(
+            value_col,
+            (log_mean - 1.96 * se).exp(),
+            result_aliases[1],
+            cutoff,
+        ),
+        _alias_with_cutoff(
+            value_col,
+            (log_mean + 1.96 * se).exp(),
+            result_aliases[2],
+            cutoff,
+        ),
     ]
 
 
 def statistics_geom_mean(
-    value_cont: str, result_alias: str = "geom_mean"
+    value_cont: str,
+    result_alias: str = "geom_mean",
+    cutoff: float | None = None,
 ) -> list[pl.Expr]:
     return [
         stat_geometric(
@@ -183,12 +293,15 @@ def statistics_geom_mean(
                 "geom_mean_95_ci_lower",
                 "geom_mean_95_ci_upper",
             ],
+            cutoff=cutoff,
         )[0].alias(result_alias)
     ]
 
 
 def statistics_geom_mean_95_ci_lower(
-    value_cont: str, result_alias: str = "geom_mean_95_ci_lower"
+    value_cont: str,
+    result_alias: str = "geom_mean_95_ci_lower",
+    cutoff: float | None = None,
 ) -> list[pl.Expr]:
     return [
         stat_geometric(
@@ -198,12 +311,15 @@ def statistics_geom_mean_95_ci_lower(
                 result_alias,
                 "geom_mean_95_ci_upper",
             ],
+            cutoff=cutoff,
         )[1].alias(result_alias)
     ]
 
 
 def statistics_geom_mean_95_ci_upper(
-    value_cont: str, result_alias: str = "geom_mean_95_ci_upper"
+    value_cont: str,
+    result_alias: str = "geom_mean_95_ci_upper",
+    cutoff: float | None = None,
 ) -> list[pl.Expr]:
     return [
         stat_geometric(
@@ -213,6 +329,7 @@ def statistics_geom_mean_95_ci_upper(
                 "geom_mean_95_ci_lower",
                 result_alias,
             ],
+            cutoff=cutoff,
         )[2].alias(result_alias)
     ]
 

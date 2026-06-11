@@ -201,6 +201,24 @@ class TestSummarizeMethod:
         assert "geom_mean" in result.columns  # from stat_geometric
         assert result.shape[0] == 2
 
+    def test_summarize_ignores_unsupported_kwargs(
+        self, setup_adapter, sample_dataframe, pl
+    ):
+        """Test kwargs are only passed to stat builders that accept them."""
+        adapter = setup_adapter()
+
+        result = adapter.calculate_for_strata(
+            df=sample_dataframe.lazy(),
+            stratifications=[["group_a"]],
+            value_col="measurement",
+            stat_builders=["stat_count", "stat_arithmetic"],
+            cutoff=0.75,
+        )
+
+        assert "n" in result.columns
+        assert "mean" in result.columns
+        assert result.shape[0] == 2
+
     def test_summarize_with_percentiles(
         self, setup_adapter, sample_dataframe, pl
     ):

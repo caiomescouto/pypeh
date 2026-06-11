@@ -1515,6 +1515,17 @@ class TestAggregation(abc.ABC):
             )
             assert observed_labels == expected_labels_dict[result_label]
 
+        summary = ret["TEST_SUMMARY"]
+        assert summary is not None
+        summary_data = summary.data.sort("current_year")
+
+        assert summary_data["mean_birthweight"].to_list() == pytest.approx(
+            [150.0, 400.0]
+        )
+        mean_birthlength = summary_data["mean_birthlength"].to_list()
+        assert mean_birthlength[0] is None
+        assert mean_birthlength[1] == pytest.approx((50 + 45 + 54) / 3)
+
 
 @pytest.mark.dataframe
 class TestDataFrameAggregation(TestAggregation):
@@ -1543,7 +1554,7 @@ class TestDataFrameAggregation(TestAggregation):
                 ],
                 "N1BirthLength": [
                     40,
-                    60,
+                    None,
                     50,
                     45,
                     54,

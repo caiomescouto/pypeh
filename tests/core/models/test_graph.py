@@ -148,24 +148,6 @@ class TestGraph:
         assert adapter.output_dtype == "mapped:decimal"
 
     @pytest.mark.parametrize(
-        ("raw_value", "expected"),
-        [
-            ("1024", 1024),
-            ("1024.5", 1024.5),
-            ("true", True),
-            ("false", False),
-            ("basic", "basic"),
-            ("", ""),
-            (1024, 1024),
-        ],
-    )
-    def test_untyped_scalar_value_resolver(self, raw_value, expected):
-        assert (
-            DataEnrichmentInterface._resolve_untyped_scalar_value(raw_value)
-            == expected
-        )
-
-    @pytest.mark.parametrize(
         ("raw_value", "value_type", "expected"),
         [
             ("1024", "float", 1024.0),
@@ -194,6 +176,19 @@ class TestGraph:
 
         assert adapter._resolve_scalar_value(raw_value, value_type) == expected
         assert adapter.mapped_value_types == [value_type]
+
+    def test_scalar_value_resolver_requires_value_type(self):
+        class ScalarResolvingEnrichmentInterface(DataEnrichmentInterface):
+            def type_mapper(self, peh_value_type):
+                raise AssertionError("value_type should be checked first")
+
+        adapter = ScalarResolvingEnrichmentInterface()
+
+        with pytest.raises(
+            ValueError,
+            match="Scalar CalculationKeywordArguments require value_type.",
+        ):
+            adapter._resolve_scalar_value("1024", None)
 
     def test_topological_sort_with_single_node(self):
         g = Graph()

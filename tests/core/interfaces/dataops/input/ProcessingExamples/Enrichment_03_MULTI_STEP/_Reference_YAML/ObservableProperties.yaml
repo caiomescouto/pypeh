@@ -222,3 +222,4 @@ observable_properties:
         unit: UNITLESS
       - mapping_name: constant
         value: "10.0"
+        value_type: float

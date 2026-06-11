@@ -207,6 +207,52 @@ class DataOpsInterface(Generic[T_DataType]):
             "Abstract method on class DataOpsInterface was called without supporting implementation."
         )
 
+    @staticmethod
+    def _scalar_type_names(mapped_type, peh_value_type) -> set[str]:
+        type_names = {
+            str(mapped_type).lower(),
+            str(peh_value_type).lower(),
+        }
+        mapped_type_name = getattr(mapped_type, "__name__", None)
+        if mapped_type_name is not None:
+            type_names.add(mapped_type_name.lower())
+        value_type_value = getattr(peh_value_type, "value", None)
+        if value_type_value is not None:
+            type_names.add(str(value_type_value).lower())
+        return type_names
+
+    def _resolve_scalar_value(self, value, value_type):
+        if value_type is None:
+            raise ValueError(
+                "Scalar CalculationKeywordArguments require value_type."
+            )
+
+        mapped_type = self.type_mapper(value_type)
+        type_names = self._scalar_type_names(mapped_type, value_type)
+
+        if "string" in type_names or "categorical" in type_names:
+            return str(value)
+        if "boolean" in type_names or "bool" in type_names:
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str):
+                lower_value = value.strip().lower()
+                if lower_value in {"true", "1", "yes"}:
+                    return True
+                if lower_value in {"false", "0", "no"}:
+                    return False
+            return bool(value)
+        if "integer" in type_names or "int64" in type_names:
+            return int(value)
+        if (
+            "float" in type_names
+            or "decimal" in type_names
+            or "float64" in type_names
+        ):
+            return float(value)
+
+        return value
+
     def matches_schema(
         self,
         raw_data_dict: dict[str, T_DataType],
@@ -1196,81 +1242,6 @@ class DataEnrichmentInterface(DataOpsInterface, Generic[T_DataType]):
     @abstractmethod
     def map_type(self, peh_value_type: str): ...
 
-    @staticmethod
-    def _resolve_untyped_scalar_value(value):
-        """
-        Best-effort scalar coercion for calculation kwargs.
-
-        Temporary bridge until CalculationKeywordArgument values carry their
-        own PEH value_type metadata.
-        """
-        if not isinstance(value, str):
-            return value
-
-        stripped = value.strip()
-        if stripped == "":
-            return value
-
-        lower_value = stripped.lower()
-        if lower_value == "true":
-            return True
-        if lower_value == "false":
-            return False
-
-        try:
-            return int(stripped)
-        except ValueError:
-            pass
-
-        try:
-            return float(stripped)
-        except ValueError:
-            return value
-
-    @staticmethod
-    def _scalar_type_names(mapped_type, peh_value_type) -> set[str]:
-        type_names = {
-            str(mapped_type).lower(),
-            str(peh_value_type).lower(),
-        }
-        mapped_type_name = getattr(mapped_type, "__name__", None)
-        if mapped_type_name is not None:
-            type_names.add(mapped_type_name.lower())
-        value_type_value = getattr(peh_value_type, "value", None)
-        if value_type_value is not None:
-            type_names.add(str(value_type_value).lower())
-        return type_names
-
-    def _resolve_scalar_value(self, value, value_type):
-        if value_type is None:
-            return self._resolve_untyped_scalar_value(value)
-
-        mapped_type = self.type_mapper(value_type)
-        type_names = self._scalar_type_names(mapped_type, value_type)
-
-        if "string" in type_names or "categorical" in type_names:
-            return str(value)
-        if "boolean" in type_names or "bool" in type_names:
-            if isinstance(value, bool):
-                return value
-            if isinstance(value, str):
-                lower_value = value.strip().lower()
-                if lower_value in {"true", "1", "yes"}:
-                    return True
-                if lower_value in {"false", "0", "no"}:
-                    return False
-            return bool(value)
-        if "integer" in type_names or "int64" in type_names:
-            return int(value)
-        if (
-            "float" in type_names
-            or "decimal" in type_names
-            or "float64" in type_names
-        ):
-            return float(value)
-
-        return value
-
     def build_callable(self, delayed_node: graph.Delayed) -> Callable:
         map_fn = delayed_node.map_fn
         arg_sources = delayed_node.arg_sources
@@ -1652,6 +1623,73 @@ class AggregationInterface(DataOpsInterface, Generic[T_DataType]):
             raise e
         return adapter_class
 
+    def _resolve_aggregation_function_kwargs(
+        self,
+        function_kwargs: list[peh.CalculationKeywordArgument] | None,
+        source_obs: peh.Observation,
+        source_dataset_series: DatasetSeries,
+    ) -> tuple[str | None, dict]:
+        value_col = None
+        resolved_kwargs = {}
+
+        if function_kwargs is None:
+            return value_col, resolved_kwargs
+
+        for function_kwarg in function_kwargs:
+            assert isinstance(function_kwarg, peh.CalculationKeywordArgument)
+            map_name = function_kwarg.mapping_name
+            source_field_ref = getattr(
+                function_kwarg,
+                "contextual_field_reference",
+                None,
+            )
+            scalar_value = getattr(function_kwarg, "value", None)
+            scalar_value_type = getattr(function_kwarg, "value_type", None)
+
+            if scalar_value is not None:
+                scalar_value = self._resolve_scalar_value(
+                    scalar_value, scalar_value_type
+                )
+
+            if source_field_ref is not None:
+                assert isinstance(
+                    source_field_ref, peh.ContextualFieldReference
+                )
+                kwarg_source_observation_id = source_field_ref.dataset_label
+                assert kwarg_source_observation_id is not None
+                if kwarg_source_observation_id != source_obs.id:
+                    raise ValueError(
+                        "All CalculationKeywordArguments should refer to "
+                        f"specified source observation: {source_obs.id}"
+                    )
+                kwarg_source_observable_property_id = (
+                    source_field_ref.field_label
+                )
+                assert kwarg_source_observable_property_id is not None
+                _, source_element_label = source_dataset_series.context_lookup(
+                    kwarg_source_observation_id,
+                    kwarg_source_observable_property_id,
+                )
+
+                if map_name is None:
+                    value_col = source_element_label
+                else:
+                    resolved_kwargs[map_name] = source_element_label
+            elif scalar_value is not None:
+                if map_name is None:
+                    raise ValueError(
+                        "Scalar CalculationKeywordArguments require "
+                        "mapping_name."
+                    )
+                resolved_kwargs[map_name] = scalar_value
+            else:
+                raise ValueError(
+                    "CalculationKeywordArgument has neither "
+                    "contextual_field_reference nor value."
+                )
+
+        return value_col, resolved_kwargs
+
     def summarize(
         self,
         source_dataset_series: DatasetSeries,
@@ -1700,8 +1738,7 @@ class AggregationInterface(DataOpsInterface, Generic[T_DataType]):
             # COMPILE STRATIFICATIONS
             stratification_ids = []
             # COMPILE AGGREGATION FUNCTION LIST
-            map_fn_list = []
-            map_fn_result_label_list = []
+            stat_specs_by_value_col = {}
             # LOOP OVER ALL OBSERVABLE PROPERTY SPECIFICATIONS
             target_observation_design_id = (
                 target_observation.observation_design
@@ -1759,48 +1796,32 @@ class AggregationInterface(DataOpsInterface, Generic[T_DataType]):
                     function_name = calculation_implementation.function_name
                     assert function_name is not None
                     map_fn = _extract_callable(function_name)
-                    map_fn_list.append(map_fn)
-                    if (
-                        function_kwargs
-                        := calculation_implementation.function_kwargs
-                    ):
-                        for function_kwarg in function_kwargs:
-                            assert isinstance(
-                                function_kwarg, peh.CalculationKeywordArgument
-                            )
-                            source_field_ref = getattr(
-                                function_kwarg,
-                                "contextual_field_reference",
-                                None,
-                            )
-                            if source_field_ref is None:
-                                continue
-                            assert isinstance(
-                                source_field_ref, peh.ContextualFieldReference
-                            )
-                            kwarg_source_observation_id = (
-                                source_field_ref.dataset_label
-                            )
-                            assert kwarg_source_observation_id is not None
-                            if kwarg_source_observation_id != source_obs.id:
-                                raise ValueError(
-                                    f"All CalculationKeywordArguments should refer to specified source observation: {source_obs.id}"
-                                )
-                            kwarg_source_observable_property_id = (
-                                source_field_ref.field_label
-                            )
-                            assert (
-                                kwarg_source_observable_property_id is not None
-                            )
-                            _, source_element_label = (
-                                source_dataset_series.context_lookup(
-                                    kwarg_source_observation_id,
-                                    kwarg_source_observable_property_id,
-                                )
-                            )
+                    value_col, stat_kwargs = (
+                        self._resolve_aggregation_function_kwargs(
+                            calculation_implementation.function_kwargs,
+                            source_obs=source_obs,
+                            source_dataset_series=source_dataset_series,
+                        )
+                    )
+                    if value_col is None:
+                        raise ValueError(
+                            "Aggregation calculations require one "
+                            "contextual_field_reference without mapping_name "
+                            "to identify the value column."
+                        )
                     target_label = observable_property.ui_label
                     assert target_label is not None
-                    map_fn_result_label_list.append(target_label)
+                    stat_specs = stat_specs_by_value_col.setdefault(
+                        value_col,
+                        {
+                            "stat_builders": [],
+                            "result_aliases": [],
+                            "stat_kwargs": [],
+                        },
+                    )
+                    stat_specs["stat_builders"].append(map_fn)
+                    stat_specs["result_aliases"].append(target_label)
+                    stat_specs["stat_kwargs"].append(stat_kwargs)
 
             # LOOKUP STRATIFICATION LABELS
             stratification_labels = None
@@ -1811,16 +1832,18 @@ class AggregationInterface(DataOpsInterface, Generic[T_DataType]):
                         source_obs.id, strat_id
                     )
                     stratification_labels.append(element_label)
-            # COMPUTE SUMMARY STAT FOR SINGLE SOURCE ELEMENT
-            assert source_element_label is not None
-            target_data = self._calculate_for_stratum(
-                df=self.normalize_input(source_data),
-                group_cols=stratification_labels,
-                value_col=source_element_label,
-                stat_builders=map_fn_list,
-                result_aliases=map_fn_result_label_list,
-            )
-            collected_results.append(target_data)
+            # COMPUTE SUMMARY STAT FOR EACH SOURCE ELEMENT
+            normalized_source_data = self.normalize_input(source_data)
+            for value_col, stat_specs in stat_specs_by_value_col.items():
+                target_data = self._calculate_for_stratum(
+                    df=normalized_source_data,
+                    group_cols=stratification_labels,
+                    value_col=value_col,
+                    stat_builders=stat_specs["stat_builders"],
+                    result_aliases=stat_specs["result_aliases"],
+                    stat_kwargs=stat_specs["stat_kwargs"],
+                )
+                collected_results.append(target_data)
 
             target_data = self.group_results(
                 collected_results, strata=stratification_labels

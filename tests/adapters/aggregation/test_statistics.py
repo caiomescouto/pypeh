@@ -120,6 +120,114 @@ class TestStatCount:
 
 
 @pytest.mark.dataframe
+class TestStatCountBelow:
+    """Test suite for stat_count_below function."""
+
+    def test_stat_count_below_basic(self, setup_adapter, pl):
+        """Test counting rows where value is below another float column."""
+        df = pl.DataFrame(
+            {
+                "value": [1.0, 2.0, 3.0, 4.0],
+                "limit": [2.0, 2.0, 5.0, 4.0],
+            }
+        )
+        adapter = setup_adapter()
+
+        exprs = adapter._get_stat_function_from_name("stat_count_below")(
+            "value", below_col="limit"
+        )
+        result = df.select(exprs)
+
+        assert result.shape == (1, 2)
+        assert result["below_n"][0] == 2
+        assert result["below_pct"][0] == pytest.approx(0.5)
+
+    def test_stat_count_below_does_not_count_equal_values(
+        self, setup_adapter, pl
+    ):
+        """Test that only strictly lower values are counted."""
+        df = pl.DataFrame(
+            {
+                "value": [1.0, 2.0, 3.0, 4.0],
+                "limit": [1.0, 2.0, 4.0, 4.0],
+            }
+        )
+        adapter = setup_adapter()
+
+        exprs = adapter._get_stat_function_from_name("stat_count_below")(
+            "value", below_col="limit"
+        )
+        result = df.select(exprs)
+
+        assert result["below_n"][0] == 1
+        assert result["below_pct"][0] == pytest.approx(0.25)
+
+    def test_stat_count_below_custom_aliases(self, setup_adapter, pl):
+        """Test that result aliases can be customized."""
+        df = pl.DataFrame(
+            {
+                "value": [1.0, 2.0, 3.0],
+                "limit": [2.0, 2.0, 2.0],
+            }
+        )
+        adapter = setup_adapter()
+
+        exprs = adapter._get_stat_function_from_name("stat_count_below")(
+            "value",
+            below_col="limit",
+            result_aliases=["under_n", "under_pct"],
+        )
+        result = df.select(exprs)
+
+        assert "under_n" in result.columns
+        assert "under_pct" in result.columns
+        assert result["under_n"][0] == 1
+        assert result["under_pct"][0] == pytest.approx(1 / 3)
+
+    @pytest.mark.parametrize("name", ["n", "pct"])
+    def test_statistics_count_below_unit_fn(self, name, setup_adapter, pl):
+        """Test that count-below statistics can be called with unit function."""
+        df = pl.DataFrame(
+            {
+                "value": [1.0, 2.0, 3.0],
+                "limit": [2.0, 2.0, 2.0],
+            }
+        )
+        adapter = setup_adapter()
+        stat_name = f"statistics_count_below_{name}"
+        result_name = f"below_{name}"
+
+        exprs = adapter._get_stat_function_from_name(stat_name)(
+            "value", below_col="limit"
+        )
+        result = df.select(exprs)
+
+        assert result_name in result.columns
+
+    def test_stat_count_below_for_grouped_aggregation(self, setup_adapter, pl):
+        """Test count-below statistics inside grouped lazy aggregation."""
+        df = pl.DataFrame(
+            {
+                "value": [1.0, 2.0, 3.0, 5.0, 6.0, 7.0],
+                "limit": [2.0, 3.0, 3.0, 6.0, 6.0, 6.0],
+                "group": ["A", "A", "A", "B", "B", "B"],
+            }
+        )
+        adapter = setup_adapter()
+
+        result = adapter.calculate_for_strata(
+            df=df.lazy(),
+            stratifications=[["group"]],
+            value_col="value",
+            stat_builders=["stat_count_below"],
+            below_col="limit",
+        ).sort("group")
+
+        assert result["below_n"].to_list() == [2, 1]
+        assert result["below_pct"].to_list() == pytest.approx([2 / 3, 1 / 3])
+
+
+@pytest.mark.dataframe
 class TestStatArithmetic:
     """Test suite for stat_arithmetic function."""
 
@@ -203,6 +311,81 @@ class TestStatArithmetic:
         assert result["mean"][0] == pytest.approx(5.75)
         assert result["st"][0] > 0
 
+    def test_stat_arithmetic_cutoff_sufficient_values(self, setup_adapter, pl):
+        """Test arithmetic statistics are returned when cutoff is met."""
+        df = pl.DataFrame({"value": [1.0, 2.0, None, None]})
+        adapter = setup_adapter()
+
+        exprs = adapter._get_stat_function_from_name("stat_arithmetic")(
+            "value", cutoff=0.5
+        )
+        result = df.select(exprs)
+
+        assert result["mean"][0] == pytest.approx(1.5)
+        assert result["st"][0] is not None
+        assert result["sem"][0] is not None
+        assert result["mean_95_ci_lower"][0] is not None
+        assert result["mean_95_ci_upper"][0] is not None
+
+    def test_stat_arithmetic_cutoff_insufficient_values(
+        self, setup_adapter, pl
+    ):
+        """Test arithmetic statistics return null when cutoff is not met."""
+        df = pl.DataFrame({"value": [1.0, None, None, None]})
+        adapter = setup_adapter()
+
+        exprs = adapter._get_stat_function_from_name("stat_arithmetic")(
+            "value", cutoff=0.5
+        )
+        result = df.select(exprs)
+
+        assert result.row(0) == (None, None, None, None, None)
+
+    def test_stat_arithmetic_without_cutoff_allows_sparse_values(
+        self, setup_adapter, pl
+    ):
+        """Test current behavior is preserved when cutoff is not provided."""
+        df = pl.DataFrame({"value": [1.0, None, None, None]})
+        adapter = setup_adapter()
+
+        exprs = adapter._get_stat_function_from_name("stat_arithmetic")(
+            "value"
+        )
+        result = df.select(exprs)
+
+        assert result["mean"][0] == pytest.approx(1.0)
+
+    def test_stat_arithmetic_cutoff_for_grouped_aggregation(
+        self, setup_adapter, pl
+    ):
+        """Test cutoff is evaluated per group."""
+        df = pl.DataFrame(
+            {
+                "value": [1.0, 2.0, None, 4.0, None, None],
+                "group": ["A", "A", "A", "B", "B", "B"],
+            }
+        )
+        adapter = setup_adapter()
+
+        result = adapter.calculate_for_strata(
+            df=df.lazy(),
+            stratifications=[["group"]],
+            value_col="value",
+            stat_builders=["stat_arithmetic"],
+            cutoff=0.5,
+        ).sort("group")
+
+        assert result["mean"].to_list() == pytest.approx([1.5, None])
+
+    def test_stat_arithmetic_invalid_cutoff(self, setup_adapter):
+        """Test cutoff must be between zero and one."""
+        adapter = setup_adapter()
+
+        with pytest.raises(ValueError, match="cutoff must be between 0 and 1"):
+            adapter._get_stat_function_from_name("stat_arithmetic")(
+                "value", cutoff=1.1
+            )
+
     @pytest.mark.parametrize(
         "values,expected_mean",
         [
@@ -240,6 +423,20 @@ class TestStatArithmetic:
         result = sample_dataframe.select(exprs)
 
         assert name in result.columns
+
+    def test_statistics_arithmetic_unit_fn_with_cutoff(
+        self, setup_adapter, pl
+    ):
+        """Test arithmetic unit functions accept cutoff."""
+        df = pl.DataFrame({"value": [1.0, None, None, None]})
+        adapter = setup_adapter()
+
+        exprs = adapter._get_stat_function_from_name("statistics_mean")(
+            "value", cutoff=0.5
+        )
+        result = df.select(exprs)
+
+        assert result["mean"][0] is None
 
 
 @pytest.mark.dataframe
@@ -285,6 +482,46 @@ class TestStatGeometric:
 
         assert result["geom_mean"][0] > 0
         assert result["geom_mean_95_ci_lower"][0] > 0
+
+    def test_stat_geometric_cutoff_sufficient_values(self, setup_adapter, pl):
+        """Test geometric statistics are returned when cutoff is met."""
+        df = pl.DataFrame({"value": [2.0, 8.0, None, None]})
+        adapter = setup_adapter()
+
+        exprs = adapter._get_stat_function_from_name("stat_geometric")(
+            "value", cutoff=0.5
+        )
+        result = df.select(exprs)
+
+        assert result["geom_mean"][0] == pytest.approx(4.0)
+        assert result["geom_mean_95_ci_lower"][0] is not None
+        assert result["geom_mean_95_ci_upper"][0] is not None
+
+    def test_stat_geometric_cutoff_insufficient_values(
+        self, setup_adapter, pl
+    ):
+        """Test geometric statistics return null when cutoff is not met."""
+        df = pl.DataFrame({"value": [2.0, 8.0, None, None]})
+        adapter = setup_adapter()
+
+        exprs = adapter._get_stat_function_from_name("stat_geometric")(
+            "value", cutoff=0.75
+        )
+        result = df.select(exprs)
+
+        assert result.row(0) == (None, None, None)
+
+    def test_statistics_geometric_unit_fn_with_cutoff(self, setup_adapter, pl):
+        """Test geometric unit functions accept cutoff."""
+        df = pl.DataFrame({"value": [2.0, 8.0, None, None]})
+        adapter = setup_adapter()
+
+        exprs = adapter._get_stat_function_from_name("statistics_geom_mean")(
+            "value", cutoff=0.75
+        )
+        result = df.select(exprs)
+
+        assert result["geom_mean"][0] is None
 
     @pytest.mark.parametrize(
         "values,expected_geom_mean",
