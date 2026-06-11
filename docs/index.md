@@ -34,6 +34,9 @@ session.load_persisted_cache(source="config")
 
 See the Session API guide for the first documented workflow surface.
 
+For YAML configuration of enrichment and aggregation calculations, see the
+Calculation Configuration guide.
+
 ## Build These Docs
 
 The documentation site is built with MkDocs:
