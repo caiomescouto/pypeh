@@ -68,13 +68,36 @@ def dataset_series():
     return series
 
 
+def _identifier_snapshot(
+    series: DatasetSeries,
+) -> dict[tuple[str, ...], str | None]:
+    snapshot = {("series",): series.identifier}
+    for dataset_label, dataset in sorted(series.parts.items()):
+        snapshot[("dataset", dataset_label)] = dataset.identifier
+        snapshot[("schema", dataset_label)] = dataset.schema.identifier
+        for element_label, element in sorted(dataset.schema.elements.items()):
+            snapshot[("schema_element", dataset_label, element_label)] = (
+                element.identifier
+            )
+        for element_label, foreign_key in sorted(
+            dataset.schema.foreign_keys.items()
+        ):
+            snapshot[("foreign_key", dataset_label, element_label)] = (
+                foreign_key.identifier
+            )
+    return snapshot
+
+
 def test_dataset_series_roundtrip_preserves_join_and_context(
     tmp_path, dataset_series
 ):
+    identifiers = _identifier_snapshot(dataset_series)
+
     dump_dataset_series_to_parquet(dataset_series, tmp_path)
 
     loaded = load_dataset_series_from_parquet(tmp_path)
 
+    assert _identifier_snapshot(loaded) == identifiers
     assert set(loaded.parts) == {"SAMPLE", "LAB"}
     join = loaded.resolve_join("LAB", "SAMPLE")
     assert join is not None

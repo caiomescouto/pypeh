@@ -73,7 +73,6 @@ import_tabular_dataset_series(
     allow_incomplete: bool = False,
     cast_error_policy: Literal["null", "raise", "report"] = "raise",
     schema_error_policy: Literal["raise", "report"] = "raise",
-    namespace_key: str | None = None,
 ) -> DatasetSeries | ValidationErrorReportCollection
 ```
 
@@ -90,7 +89,6 @@ load_tabular_dataset_series(
     allow_incomplete: bool = False,
     cast_error_policy: Literal["null", "raise", "report"] = "raise",
     schema_error_policy: Literal["raise", "report"] = "raise",
-    namespace_key: str | None = None,
 ) -> DatasetSeries | ValidationErrorReportCollection
 ```
 

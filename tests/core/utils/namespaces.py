@@ -4,6 +4,8 @@ import re
 from peh_model.peh import ObservableProperty
 
 from pypeh import NamespaceManager
+from pypeh.core.models.identifiers import IdentifierContext
+from pypeh.core.models.internal_data_layout import DatasetSeries
 
 
 @pytest.fixture
@@ -91,3 +93,13 @@ class TestNamespaces:
         assert re.match(
             pattern, iri
         ), f"IRI did not match expected pattern: {iri}"
+
+    def test_identifier_provider_delegates_to_mint(self):
+        nm = NamespaceManager("https://w3id.org/peh/")
+        provider = nm.get_identifier_provider(
+            suffix_strategy=lambda: "fixed-id"
+        )
+
+        iri = provider.mint(IdentifierContext(DatasetSeries))
+
+        assert iri == "https://w3id.org/peh/dataset-series/fixed-id"

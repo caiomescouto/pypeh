@@ -3,9 +3,14 @@ from __future__ import annotations
 import logging
 import re
 
-from dataclasses import is_dataclass
+from dataclasses import dataclass, is_dataclass
 from typing import Dict, Callable, Type
 from ulid import ULID
+
+from pypeh.core.models.identifiers import (
+    IdentifierContext,
+    IdentifierProvider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -199,11 +204,16 @@ class NamespaceManager:
         resource_class: Type,
         namespace_key: str | None = None,
         identifying_field: str = "id",
+        suffix_strategy: Callable[[], str] | None = None,
     ) -> str:
         base = self._resolve_base(resource_class, namespace_key)
         if base is None:
             raise ValueError("Could not resolve base URI")
-        suffix = self.suffix_strategy()
+        suffix = (
+            self.suffix_strategy()
+            if suffix_strategy is None
+            else suffix_strategy()
+        )
         return f"{base}{suffix}"
 
     def mint_and_set(
@@ -221,24 +231,30 @@ class NamespaceManager:
 
         return uri
 
-    def get_id_factory(
+    def get_identifier_provider(
         self,
         namespace_key: str | None = None,
         suffix_strategy: Callable[[], str] | None = None,
-    ) -> Callable[[], str] | None:
-        base = self._resolve_base(
-            resource_class=None, namespace_key=namespace_key
+    ) -> IdentifierProvider:
+        return NamespaceIdentifierProvider(
+            namespace_manager=self,
+            namespace_key=namespace_key,
+            suffix_strategy=suffix_strategy,
         )
-        if base is None:
-            return None
-        if suffix_strategy is None:
-            suffix_strategy = self.suffix_strategy
 
-        def _factory():
-            suffix = suffix_strategy()
-            return f"{base}{suffix}"
 
-        return _factory
+@dataclass
+class NamespaceIdentifierProvider:
+    namespace_manager: NamespaceManager
+    namespace_key: str | None = None
+    suffix_strategy: Callable[[], str] | None = None
+
+    def mint(self, context: IdentifierContext) -> str:
+        return self.namespace_manager.mint(
+            resource_class=context.resource_class,
+            namespace_key=self.namespace_key,
+            suffix_strategy=self.suffix_strategy,
+        )
 
 
 def default_resource_type(cls: Type) -> str:

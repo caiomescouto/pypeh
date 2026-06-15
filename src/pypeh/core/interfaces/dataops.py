@@ -684,6 +684,7 @@ class DataOpsInterface(Generic[T_DataType]):
         ret = DatasetSeries[T_DataType](
             label=series_label,
             metadata=dict(dataset_series.metadata),
+            identifier_provider=dataset_series.identifier_provider,
         )
 
         observation_ids = sorted(dataset_series._obs_index.keys())
@@ -1696,12 +1697,11 @@ class AggregationInterface(DataOpsInterface, Generic[T_DataType]):
         target_observations: list[peh.Observation],
         target_derived_from: list[peh.Observation],
         cache_view: CacheContainerView,
-        id_factory: Callable[[], str] | None = None,
     ) -> DatasetSeries:
         # ADD TARGET OBSERVATION TO A NEW DATASET_SERIES
         aggregated_dataset_series: DatasetSeries = DatasetSeries(
             label=f"{source_dataset_series.label}_aggregated",
-            id_factory=id_factory,
+            identifier_provider=source_dataset_series.identifier_provider,
         )
         assert len(target_observations) == len(target_derived_from)
 
