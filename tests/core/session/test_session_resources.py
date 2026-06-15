@@ -2,7 +2,6 @@ import pytest
 import re
 import yaml
 import inspect
-from typing import Callable
 
 from peh_model.peh import Observation, ObservableProperty, DerivedObservation
 
@@ -182,7 +181,6 @@ class RecordingAggregationAdapter(AggregationInterface):
         target_observations: list[Observation],
         target_derived_from: list[Observation],
         cache_view: CacheContainerView,
-        id_factory: Callable[[], str] | None = None,
     ) -> DatasetSeries:
         self.calls.append(
             {

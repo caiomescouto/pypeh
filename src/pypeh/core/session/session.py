@@ -328,24 +328,21 @@ class Session(Generic[T_AdapterType, T_DataType]):
         allow_incomplete: bool = False,
         cast_error_policy: Literal["null", "raise", "report"] = "raise",
         schema_error_policy: Literal["raise", "report"] = "raise",
-        namespace_key: str | None = None,
         adapter_label: str = "dataops",
     ) -> DatasetSeries[DataFrame] | ValidationErrorReportCollection:
         cache_view = CacheContainerView(self.cache)
         assert isinstance(data_import_config, peh.DataImportConfig)
-        id_factory = None
-        if namespace_key is not None and self.namespace_manager is None:
-            raise ValueError(
-                "A namespace_key can only be provided when a NamespaceMananger is bound to the Session"
-            )
+        identifier_provider = None
         if self.namespace_manager is not None:
-            id_factory = self.namespace_manager.get_id_factory(
-                namespace_key, suffix_strategy=NamespaceManager.generate_ulid()
+            identifier_provider = (
+                self.namespace_manager.get_identifier_provider(
+                    suffix_strategy=NamespaceManager.generate_ulid()
+                )
             )
         dataset_series = DatasetSeries.from_peh_data_import_config(
             data_import_config,
             cache_view=cache_view,
-            id_factory=id_factory,
+            identifier_provider=identifier_provider,
         )
         data_schema = dataset_series.get_type_annotations()
 
@@ -422,7 +419,6 @@ class Session(Generic[T_AdapterType, T_DataType]):
         allow_incomplete: bool = False,
         cast_error_policy: Literal["null", "raise", "report"] = "raise",
         schema_error_policy: Literal["raise", "report"] = "raise",
-        namespace_key: str | None = None,
     ) -> DatasetSeries[DataFrame] | ValidationErrorReportCollection:
         logger.warning(
             "load_tabular_dataset_series will be deprecated in favor of import_tabular_dataset_series"
@@ -435,7 +431,6 @@ class Session(Generic[T_AdapterType, T_DataType]):
             allow_incomplete=allow_incomplete,
             cast_error_policy=cast_error_policy,
             schema_error_policy=schema_error_policy,
-            namespace_key=namespace_key,
         )
 
     @staticmethod

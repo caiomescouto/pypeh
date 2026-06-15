@@ -1,6 +1,5 @@
 import pytest
 import peh_model.peh as peh
-import uuid
 from dataclasses import asdict
 
 from pypeh.core.cache.containers import (
@@ -18,6 +17,7 @@ from pypeh.core.models.internal_data_layout import (
     JoinSpec,
 )
 from pypeh.core.models.constants import ObservablePropertyValueType
+from pypeh.core.utils.namespaces import NamespaceManager
 from pypeh.adapters.persistence.hosts import DirectoryIO
 from pypeh.core.cache.utils import load_entities_from_tree
 
@@ -38,12 +38,6 @@ class TestInternalDataLayout:
 
         return CacheContainerView(container)
 
-    def get_id_factory(self):
-        def _id_factory():
-            return f"https://w3id.org/{uuid.uuid4()}"
-
-        return _id_factory
-
     def test_dataset_contained_in_schema(self, get_cache):
         cache_view = get_cache
         layout_id = "peh:CODEBOOK_v2.4_LAYOUT_SAMPLE_METADATA"
@@ -63,8 +57,8 @@ class TestInternalDataLayout:
                 ["id_sample", "adults_u_crt", "my_imaginary_friend"]
             )
 
-    @pytest.mark.parametrize("use_id_factory", [False, True])
-    def test_dataset_series(self, get_cache, use_id_factory):
+    @pytest.mark.parametrize("use_identifier_provider", [False, True])
+    def test_dataset_series(self, get_cache, use_identifier_provider):
         cache_view = get_cache
         layout_id = "peh:CODEBOOK_v2.4_LAYOUT_SAMPLE_METADATA"
         layout = get_cache.get(layout_id, "DataLayoutLayout")
@@ -73,11 +67,14 @@ class TestInternalDataLayout:
             section_id = section.id
             if section.id is not None:
                 all_sections.add(section_id)
-        id_factory = None
-        if use_id_factory:
-            id_factory = self.get_id_factory()
+        identifier_provider = None
+        if use_identifier_provider:
+            namespace_manager = NamespaceManager("https://w3id.org/peh/")
+            identifier_provider = namespace_manager.get_identifier_provider()
         dataset_series = DatasetSeries.from_peh_datalayout(
-            layout, cache_view=cache_view, id_factory=id_factory
+            layout,
+            cache_view=cache_view,
+            identifier_provider=identifier_provider,
         )
         assert isinstance(dataset_series, DatasetSeries)
         assert (
@@ -102,8 +99,10 @@ class TestInternalDataLayout:
             for subkey, value in subschema.items():
                 assert schema[key][subkey] == value
 
-        if use_id_factory:
-            assert dataset_series.identifier.startswith("https://")
+        if use_identifier_provider:
+            assert dataset_series.identifier.startswith(
+                "https://w3id.org/peh/dataset-series/"
+            )
 
     def test_dataset_series_add_data(self, get_cache):
         cache_view = get_cache
@@ -141,6 +140,100 @@ class TestInternalDataLayout:
             "SAMPLETIMEPOINT_BS", dataset_success, list(dataset_success.keys())
         )
         assert result_success is None
+
+    def test_identifier_provider_assigns_class_specific_identifiers(self):
+        namespace_manager = NamespaceManager("https://w3id.org/peh/")
+        identifier_provider = namespace_manager.get_identifier_provider(
+            suffix_strategy=lambda: "fixed-id"
+        )
+        dataset_series = DatasetSeries(
+            label="series",
+            identifier_provider=identifier_provider,
+        )
+        dataset = dataset_series.add_empty_dataset("dataset")
+        schema_element = dataset_series.add_observable_property(
+            observation_id="observation",
+            observable_property_id="observable-property",
+            data_type=ObservablePropertyValueType.STRING,
+            dataset_label=dataset.label,
+            element_label="element",
+        )
+        dataset.schema.add_foreign_key_link(
+            element_label="element",
+            foreign_key_dataset_label="dataset",
+            foreign_key_element_label="element",
+        )
+        foreign_key = dataset.schema.foreign_keys["element"]
+
+        assert (
+            dataset_series.identifier
+            == "https://w3id.org/peh/dataset-series/fixed-id"
+        )
+        assert dataset.identifier == "https://w3id.org/peh/dataset/fixed-id"
+        assert (
+            dataset.schema.identifier
+            == "https://w3id.org/peh/dataset-schema/fixed-id"
+        )
+        assert (
+            schema_element.identifier
+            == "https://w3id.org/peh/dataset-schema-element/fixed-id"
+        )
+        assert (
+            foreign_key.identifier
+            == "https://w3id.org/peh/foreign-key/fixed-id"
+        )
+
+    def test_identifier_provider_preserves_existing_identifiers(self):
+        namespace_manager = NamespaceManager("https://w3id.org/peh/")
+        identifier_provider = namespace_manager.get_identifier_provider(
+            suffix_strategy=lambda: "minted-id"
+        )
+        schema_element = DatasetSchemaElement(
+            label="element",
+            observable_property_id="observable-property",
+            data_type=ObservablePropertyValueType.STRING,
+            identifier="existing-schema-element-id",
+            identifier_provider=identifier_provider,
+        )
+        foreign_key = ForeignKey(
+            element_label="element",
+            reference=ElementReference(
+                dataset_label="dataset",
+                element_label="element",
+            ),
+            identifier="existing-foreign-key-id",
+            identifier_provider=identifier_provider,
+        )
+        schema = DatasetSchema(
+            elements={"element": schema_element},
+            foreign_keys={"element": foreign_key},
+            identifier="existing-schema-id",
+            identifier_provider=identifier_provider,
+        )
+        dataset = Dataset(
+            label="dataset",
+            identifier="existing-dataset-id",
+            schema=schema,
+            identifier_provider=identifier_provider,
+        )
+        dataset_series = DatasetSeries(
+            label="series",
+            identifier="existing-series-id",
+            identifier_provider=identifier_provider,
+        )
+        dataset_series.register_dataset(dataset)
+
+        assert dataset_series.identifier == "existing-series-id"
+        assert dataset.identifier == "existing-dataset-id"
+        assert dataset.schema.identifier == "existing-schema-id"
+        assert (
+            dataset.schema.elements["element"].identifier
+            == "existing-schema-element-id"
+        )
+        assert (
+            dataset.schema.foreign_keys["element"].identifier
+            == "existing-foreign-key-id"
+        )
 
     def test_add_observable_property_registers_resolved_label(self):
         dataset_series = DatasetSeries(label="series")
