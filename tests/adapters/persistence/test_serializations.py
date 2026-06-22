@@ -375,25 +375,27 @@ class TestDump:
             assert "peh" in ns
             assert "pehterms" in ns
             OP = rdflib.URIRef(ns["pehterms"] + "ObservableProperty")
+            observable_properties = set(g.subjects(rdflib.RDF.type, OP))
             assert (
-                None,
-                rdflib.RDF.type,
-                OP,
-            ) in g, "No ObservableProperty instances found"
+                observable_properties
+            ), "No ObservableProperty instances found"
             EL = rdflib.URIRef(ns["pehterms"] + "EntityList")
             assert (None, rdflib.RDF.type, EL) in g, "No EntityList found"
-            observable_properties_pred = rdflib.URIRef(
-                ns["pehterms"] + "observable_properties"
-            )
             entity_lists = list(g.subjects(rdflib.RDF.type, EL))
             assert entity_lists, "No EntityList subjects found"
+            linked_observable_properties = set()
             for el in entity_lists:
-                props = list(g.objects(el, observable_properties_pred))
-                assert props, "EntityList has no observable_properties"
-                for p in props:
-                    label_pred = rdflib.URIRef(ns["rdfs"] + "label")
-                    assert (
-                        p,
-                        label_pred,
-                        None,
-                    ) in g, f"Observable property {p} has no rdfs label"
+                props = {
+                    obj
+                    for obj in g.objects(el)
+                    if obj in observable_properties
+                }
+                assert props, "EntityList has no ObservableProperty links"
+                linked_observable_properties.update(props)
+            assert observable_properties == linked_observable_properties
+            for p in observable_properties:
+                assert (
+                    p,
+                    rdflib.RDFS.label,
+                    None,
+                ) in g, f"Observable property {p} has no rdfs label"
