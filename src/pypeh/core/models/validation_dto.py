@@ -25,24 +25,33 @@ logger = logging.getLogger(__name__)
 
 
 def convert_peh_validation_error_level_to_validation_dto_error_level(
-    peh_validation_error_level: str | None,
+    peh_validation_error_level: Any | None,
 ):
     if peh_validation_error_level is None:
         return ValidationErrorLevel.ERROR
+
+    if isinstance(peh_validation_error_level, Enum):
+        if isinstance(peh_validation_error_level.value, str):
+            error_level = peh_validation_error_level.value
+        else:
+            error_level = peh_validation_error_level.name
     else:
-        match peh_validation_error_level:
-            case "info":
-                return ValidationErrorLevel.INFO
-            case "warning":
-                return ValidationErrorLevel.WARNING
-            case "error":
-                return ValidationErrorLevel.ERROR
-            case "fatal":
-                return ValidationErrorLevel.FATAL
-            case _:
-                raise ValueError(
-                    f"Invalid Error level encountered: {peh_validation_error_level}"
-                )
+        error_level = str(peh_validation_error_level)
+
+    error_level = error_level.strip().lower()
+    match error_level:
+        case "info":
+            return ValidationErrorLevel.INFO
+        case "warning":
+            return ValidationErrorLevel.WARNING
+        case "error":
+            return ValidationErrorLevel.ERROR
+        case "fatal":
+            return ValidationErrorLevel.FATAL
+        case _:
+            raise ValueError(
+                f"Invalid Error level encountered: {peh_validation_error_level}"
+            )
 
 
 def cast_to_peh_value_type(
@@ -249,7 +258,9 @@ class ValidationDesign(BaseModel):
         dataset_label: str | None = None,
     ) -> "ValidationDesign":
         dependent_contextual_field_references = defaultdict(set)
-        error_level = getattr(validation_design, "error_level", None)
+        error_level = getattr(
+            validation_design, "validation_error_level", None
+        )
         error_level = (
             convert_peh_validation_error_level_to_validation_dto_error_level(
                 error_level
