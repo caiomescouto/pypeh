@@ -442,4 +442,5 @@ class TestBasicValidationConfig:
         assert ret.error_counts[ValidationErrorLevel.FATAL] == 1
         assert len(ret.groups) == 1
         assert len(ret.groups[0].errors) == 1
-        assert "strict_cast(Float64)" in ret.groups[0].errors[0].message
+        assert "f64" in ret.groups[0].errors[0].message
+        assert "oops" in ret.groups[0].errors[0].message

@@ -1,9 +1,16 @@
 from dataclasses import dataclass
 
 import pytest
+from peh_model import peh
 
-from pypeh.core.models.constants import ObservablePropertyValueType
-from pypeh.core.models.validation_dto import ValidationDesign
+from pypeh.core.models.constants import (
+    ObservablePropertyValueType,
+    ValidationErrorLevel,
+)
+from pypeh.core.models.validation_dto import (
+    ValidationDesign,
+    convert_peh_validation_error_level_to_validation_dto_error_level,
+)
 
 
 @dataclass
@@ -14,6 +21,30 @@ class DummyMetadata:
 
 @pytest.mark.core
 class TestValidationDesignFromBounds:
+    @pytest.mark.parametrize(
+        "peh_level, expected_level",
+        [
+            ("info", ValidationErrorLevel.INFO),
+            ("warning", ValidationErrorLevel.WARNING),
+            ("error", ValidationErrorLevel.ERROR),
+            ("fatal", ValidationErrorLevel.FATAL),
+        ],
+    )
+    def test_convert_peh_validation_error_level_accepts_linkml_values(
+        self, peh_level, expected_level
+    ):
+        validation_design = peh.ValidationDesign(
+            validation_error_level=peh_level
+        )
+
+        result = (
+            convert_peh_validation_error_level_to_validation_dto_error_level(
+                validation_design.validation_error_level
+            )
+        )
+
+        assert result == expected_level
+
     def test_list_from_bounds_creates_min_and_max_validations(self):
         validations = ValidationDesign.list_from_bounds(
             min_value=1,
