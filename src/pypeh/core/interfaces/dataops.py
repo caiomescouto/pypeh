@@ -661,6 +661,126 @@ class DataOpsInterface(Generic[T_DataType]):
 
         return labels_by_observation
 
+    def extract_from_source(
+        self,
+        source: DatasetSeries[T_DataType],
+        target: DatasetSeries[T_DataType],
+    ) -> DatasetSeries[T_DataType]:
+        """
+        Reshape `source` data into the shape requested by `target` and attach
+        the resulting data to each Dataset in `target.parts`.
+
+        `target._context_index` is the SSOT for what to
+        extract: each `(observation_id, observable_property_id) ->
+        (target_dataset_label, target_element_label)` entry is resolved
+        against `source.context_lookup(observation_id, observable_property_id)`
+        to determine which source `(dataset_label, field_label)` provides the
+        value. When fields for a single target dataset come from multiple
+        source datasets, the existing join helpers shared with
+        `split_by_observation` are used to join through foreign keys present
+        in the source.
+        """
+        for target_dataset_label in target.parts:
+            target_label_for: dict[tuple[str, str], str] = {}
+            for (
+                observation_id,
+                observable_property_id,
+            ), contextual_ref in target._context_index.items():
+                ctx_dataset_label, target_element_label = contextual_ref
+                if ctx_dataset_label != target_dataset_label:
+                    continue
+                source_ref = source.context_lookup(
+                    observation_id, observable_property_id
+                )
+                existing = target_label_for.get(source_ref)
+                if existing is not None and existing != target_element_label:
+                    src_label, src_field = source_ref
+                    raise ValueError(
+                        f"Multiple target outputs in dataset "
+                        f"{target_dataset_label!r} resolve to the same source "
+                        f"field ({src_label!r}, {src_field!r}): "
+                        f"{existing!r} and {target_element_label!r}."
+                    )
+                target_label_for[source_ref] = target_element_label
+
+            if len(target_label_for) == 0:
+                continue
+
+            required_fields_by_dataset: dict[str, set[str]] = defaultdict(set)
+            for src_label, src_field in target_label_for:
+                required_fields_by_dataset[src_label].add(src_field)
+            source_dataset_labels = sorted(required_fields_by_dataset.keys())
+
+            sentinel_observation_id = (
+                f"<export target dataset {target_dataset_label}>"
+            )
+            base_dataset_label = self._pick_base_dataset_label(
+                source_dataset_labels, required_fields_by_dataset
+            )
+            raw_join_specs, _ = self._resolve_join_specs(
+                source,
+                sentinel_observation_id,
+                source_dataset_labels,
+                base_dataset_label,
+                required_fields_by_dataset,
+            )
+
+            field_label_mapping: dict[tuple[str, str], str] = {}
+            used_output_labels: set[str] = set(target_label_for.values())
+            for source_label in source_dataset_labels:
+                for field_label in sorted(
+                    required_fields_by_dataset.get(source_label, set())
+                ):
+                    target_label = target_label_for.get(
+                        (source_label, field_label)
+                    )
+                    if target_label is not None:
+                        field_label_mapping[(source_label, field_label)] = (
+                            target_label
+                        )
+                    else:
+                        unique = self._build_unique_label(
+                            field_label,
+                            used_output_labels,
+                            dataset_label=source_label,
+                        )
+                        used_output_labels.add(unique)
+                        field_label_mapping[(source_label, field_label)] = (
+                            unique
+                        )
+
+            datasets_for_join = self._prepare_datasets_for_join(
+                source,
+                sentinel_observation_id,
+                source_dataset_labels,
+                required_fields_by_dataset,
+                field_label_mapping,
+            )
+            base_data = datasets_for_join[base_dataset_label]
+            if len(raw_join_specs) > 0:
+                join_plan = self._build_adjusted_join_plan(
+                    base_dataset_label,
+                    source_dataset_labels,
+                    raw_join_specs,
+                    required_fields_by_dataset,
+                    field_label_mapping,
+                )
+                joined_data = self.execute_join_plan(
+                    base_data=base_data,
+                    datasets=datasets_for_join,
+                    join_plan=join_plan,
+                )
+            else:
+                joined_data = base_data
+
+            final_target_labels = sorted(set(target_label_for.values()))
+            final_data = self.subset(
+                joined_data, element_group=final_target_labels
+            )
+            target.parts[target_dataset_label].data = final_data
+
+        return target
+
     def split_by_observation(
         self,
         dataset_series: DatasetSeries[T_DataType],
