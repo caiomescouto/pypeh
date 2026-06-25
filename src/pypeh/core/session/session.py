@@ -184,6 +184,26 @@ class Session(Generic[T_AdapterType, T_DataType]):
             return default_connection.make_settings(_env_file=env_file)
         return None
 
+    def _new_identifier_provider(self):
+        if self.namespace_manager is None:
+            return None
+        return self.namespace_manager.get_identifier_provider(
+            suffix_strategy=NamespaceManager.generate_ulid()
+        )
+
+    def _build_series_from_data_config(
+        self,
+        data_config: peh.DataImportConfig | peh.DataExportConfig,
+    ) -> DatasetSeries:
+        assert isinstance(
+            data_config, (peh.DataImportConfig, peh.DataExportConfig)
+        )
+        return DatasetSeries.from_peh_data_config(
+            data_config=data_config,
+            cache_view=CacheContainerView(self.cache),
+            identifier_provider=self._new_identifier_provider(),
+        )
+
     def register_default_adapter(self, interface_functionality: str):
         adapter = None
         match interface_functionality:
@@ -330,19 +350,8 @@ class Session(Generic[T_AdapterType, T_DataType]):
         schema_error_policy: Literal["raise", "report"] = "raise",
         adapter_label: str = "dataops",
     ) -> DatasetSeries[DataFrame] | ValidationErrorReportCollection:
-        cache_view = CacheContainerView(self.cache)
-        assert isinstance(data_import_config, peh.DataImportConfig)
-        identifier_provider = None
-        if self.namespace_manager is not None:
-            identifier_provider = (
-                self.namespace_manager.get_identifier_provider(
-                    suffix_strategy=NamespaceManager.generate_ulid()
-                )
-            )
-        dataset_series = DatasetSeries.from_peh_data_import_config(
-            data_import_config,
-            cache_view=cache_view,
-            identifier_provider=identifier_provider,
+        dataset_series = self._build_series_from_data_config(
+            data_import_config
         )
         data_schema = dataset_series.get_type_annotations()
 
@@ -492,6 +501,33 @@ class Session(Generic[T_AdapterType, T_DataType]):
                 file_system,
                 destination,
             )
+
+    def export_tabular_dataset_series(
+        self,
+        source_dataset_series: DatasetSeries[DataFrame],
+        data_export_config: peh.DataExportConfig,
+        adapter_label: str = "dataops",
+    ) -> DatasetSeries[DataFrame]:
+        """
+        Reshape a DatasetSeries according to a peh.DataExportConfig and return
+        the reshaped DatasetSeries.
+
+        The DataLayout referenced by data_export_config defines the requested
+        export shape: section_mapping_links bind layout sections to source
+        Observations, and the dataops adapter then projects/joins the source
+        DatasetSeries into the requested datasets.
+        """
+        target = self._build_series_from_data_config(data_export_config)
+
+        adapter = self.get_adapter(adapter_label)
+        assert isinstance(adapter, DataOpsInterface)
+
+        exported = adapter.extract_from_source(
+            source=source_dataset_series,
+            target=target,
+        )
+
+        return exported
 
     def read_tabular_dataset_series(
         self,

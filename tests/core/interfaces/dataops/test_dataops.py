@@ -1111,6 +1111,221 @@ class TestDatasetSeriesMods(abc.ABC):
         with pytest.raises(ValueError, match="must be unique"):
             adapter.split_by_observation(dataset_series, cache_view=cache_view)
 
+    def test_extract_from_source_single_source_relabels(self):
+        adapter = self.get_adapter()
+
+        source = DatasetSeries(label="extract_single_source")
+        source_dataset = source.add_empty_dataset("source")
+        source_dataset.add_observation_to_index("obs:src")
+        source_dataset.add_observable_property(
+            observable_property_id="prop_id",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="id",
+            is_primary_key=True,
+        )
+        source_dataset.add_observable_property(
+            observable_property_id="prop_value",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="measure",
+        )
+        source._register_observable_property(
+            "prop_id", "obs:src", "source", "id"
+        )
+        source._register_observable_property(
+            "prop_value", "obs:src", "source", "measure"
+        )
+
+        left_data, _ = self.mixed_join_and_single_dataset_data()
+        source_dataset.data = adapter.subset(
+            left_data, element_group=["id", "left_measure"]
+        )
+        source_dataset.data = adapter.relabel(
+            source_dataset.data, {"left_measure": "measure"}
+        )
+
+        target = DatasetSeries(label="extract_single_target")
+        target_dataset = target.add_empty_dataset("export")
+        target_dataset.add_observation_to_index("obs:src")
+        target_dataset.add_observable_property(
+            observable_property_id="prop_id",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="subject_id",
+            is_primary_key=True,
+        )
+        target_dataset.add_observable_property(
+            observable_property_id="prop_value",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="measurement",
+        )
+        target._register_observable_property(
+            "prop_id", "obs:src", "export", "subject_id"
+        )
+        target._register_observable_property(
+            "prop_value", "obs:src", "export", "measurement"
+        )
+
+        result = adapter.extract_from_source(source=source, target=target)
+
+        assert result is target
+        export_dataset = result.parts["export"]
+        assert export_dataset.data is not None
+        assert sorted(adapter.get_element_labels(export_dataset.data)) == [
+            "measurement",
+            "subject_id",
+        ]
+        subject_ids = export_dataset.data.get_column("subject_id").to_list()
+        measurements = export_dataset.data.get_column("measurement").to_list()
+        assert subject_ids == ["001", "002"]
+        assert measurements == [10.0, 20.0]
+
+    def test_extract_from_source_joins_via_source_foreign_key(self):
+        adapter = self.get_adapter()
+
+        source = DatasetSeries(label="extract_join_source")
+        left_dataset = source.add_empty_dataset("left")
+        right_dataset = source.add_empty_dataset("right")
+        left_dataset.add_observation_to_index("obs:joined")
+        right_dataset.add_observation_to_index("obs:joined")
+
+        left_dataset.add_observable_property(
+            observable_property_id="prop_id",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="id",
+            is_primary_key=True,
+        )
+        left_dataset.add_observable_property(
+            observable_property_id="prop_left_value",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="left_measure",
+        )
+        right_dataset.add_observable_property(
+            observable_property_id="prop_fk_id",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="left_id",
+        )
+        right_dataset.add_observable_property(
+            observable_property_id="prop_right_value",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="right_measure",
+        )
+        right_dataset.schema.add_foreign_key_link(
+            element_label="left_id",
+            foreign_key_dataset_label="left",
+            foreign_key_element_label="id",
+        )
+        source._register_observable_property(
+            "prop_id", "obs:joined", "left", "id"
+        )
+        source._register_observable_property(
+            "prop_left_value", "obs:joined", "left", "left_measure"
+        )
+        source._register_observable_property(
+            "prop_fk_id", "obs:joined", "right", "left_id"
+        )
+        source._register_observable_property(
+            "prop_right_value", "obs:joined", "right", "right_measure"
+        )
+
+        left_data, right_data = self.mixed_join_and_single_dataset_data()
+        left_dataset.data = adapter.subset(
+            left_data, element_group=["id", "left_measure"]
+        )
+        right_dataset.data = right_data
+
+        target = DatasetSeries(label="extract_join_target")
+        target_dataset = target.add_empty_dataset("export")
+        target_dataset.add_observation_to_index("obs:joined")
+        target_dataset.add_observable_property(
+            observable_property_id="prop_left_value",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="left_value",
+        )
+        target_dataset.add_observable_property(
+            observable_property_id="prop_right_value",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="right_value",
+        )
+        target._register_observable_property(
+            "prop_left_value", "obs:joined", "export", "left_value"
+        )
+        target._register_observable_property(
+            "prop_right_value", "obs:joined", "export", "right_value"
+        )
+
+        result = adapter.extract_from_source(source=source, target=target)
+
+        export_dataset = result.parts["export"]
+        assert export_dataset.data is not None
+        assert sorted(adapter.get_element_labels(export_dataset.data)) == [
+            "left_value",
+            "right_value",
+        ]
+        left_values = export_dataset.data.get_column("left_value").to_list()
+        right_values = export_dataset.data.get_column("right_value").to_list()
+        assert left_values == [10.0, 20.0]
+        assert right_values == [100.0, 200.0]
+
+    def test_extract_from_source_collision_raises(self):
+        adapter = self.get_adapter()
+
+        source = DatasetSeries(label="extract_collision_source")
+        source_dataset = source.add_empty_dataset("source")
+        source_dataset.add_observation_to_index("obs:a")
+        source_dataset.add_observation_to_index("obs:b")
+        source_dataset.add_observable_property(
+            observable_property_id="prop_x",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="value",
+        )
+        # Register two distinct (observation, observable_property) context
+        # entries that both resolve to the same source (dataset, element).
+        # `_register_observable_property` updates `_context_index` directly
+        # without touching the schema, so prop_y need not be a separate
+        # schema element on the source side.
+        source._register_observable_property(
+            "prop_x", "obs:a", "source", "value"
+        )
+        source._register_observable_property(
+            "prop_y", "obs:b", "source", "value"
+        )
+        left_data, _ = self.mixed_join_and_single_dataset_data()
+        source_dataset.data = adapter.subset(
+            left_data, element_group=["left_measure"]
+        )
+        source_dataset.data = adapter.relabel(
+            source_dataset.data, {"left_measure": "value"}
+        )
+
+        target = DatasetSeries(label="extract_collision_target")
+        target_dataset = target.add_empty_dataset("export")
+        target_dataset.add_observation_to_index("obs:a")
+        target_dataset.add_observation_to_index("obs:b")
+        target_dataset.add_observable_property(
+            observable_property_id="prop_x",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="value_a",
+        )
+        target_dataset.add_observable_property(
+            observable_property_id="prop_y",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="value_b",
+        )
+        target._register_observable_property(
+            "prop_x", "obs:a", "export", "value_a"
+        )
+        target._register_observable_property(
+            "prop_y", "obs:b", "export", "value_b"
+        )
+
+        with pytest.raises(
+            ValueError, match="resolve to the same source field"
+        ) as exc_info:
+            adapter.extract_from_source(source=source, target=target)
+
+        message = str(exc_info.value)
+        assert "value_a" in message
+        assert "value_b" in message
+
 
 class TestEnrichment(abc.ABC):
     """Abstract base class for enrichment adapters."""
@@ -1143,8 +1358,8 @@ class TestEnrichment(abc.ABC):
             data_import_config_id, "DataImportConfig"
         )
         assert isinstance(data_import_config, DataImportConfig)
-        return DatasetSeries.from_peh_data_import_config(
-            data_import_config=data_import_config,
+        return DatasetSeries.from_peh_data_config(
+            data_config=data_import_config,
             cache_view=cache_view,
         )
 
@@ -1437,8 +1652,8 @@ class TestAggregation(abc.ABC):
             data_import_config_id, "DataImportConfig"
         )
         assert isinstance(data_import_config, DataImportConfig)
-        return DatasetSeries.from_peh_data_import_config(
-            data_import_config=data_import_config,
+        return DatasetSeries.from_peh_data_config(
+            data_config=data_import_config,
             cache_view=cache_view,
         )
 

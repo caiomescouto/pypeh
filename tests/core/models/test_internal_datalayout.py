@@ -322,6 +322,77 @@ class TestInternalDataLayout:
         assert contextual_field_reference.dataset_label == "SAMPLETIMEPOINT_BS"
         assert contextual_field_reference.field_label == "adults_u_crt"
 
+    def test_from_peh_data_config_with_export_config_construction(
+        self, get_cache
+    ):
+        cache_view = get_cache
+        existing = cache_view.get(
+            "peh:IMPORT_CONFIG_CODEBOOK_v2.4_LAYOUT_SAMPLE_METADATA",
+            "DataImportConfig",
+        )
+        assert isinstance(existing, peh.DataImportConfig)
+
+        data_export_config = peh.DataExportConfig(
+            id="peh:EXPORT_CONFIG_CODEBOOK_v2.4_LAYOUT_SAMPLE_METADATA",
+            layout=existing.layout,
+            section_mapping=peh.DataImportSectionMapping(
+                section_mapping_links=[
+                    peh.DataImportSectionMappingLink(
+                        section=link.section,
+                        observation_id_list=list(link.observation_id_list),
+                    )
+                    for link in existing.section_mapping.section_mapping_links
+                ]
+            ),
+        )
+
+        target = DatasetSeries.from_peh_data_config(
+            data_config=data_export_config,
+            cache_view=cache_view,
+        )
+        via_import = DatasetSeries.from_peh_data_config(
+            data_config=existing,
+            cache_view=cache_view,
+        )
+
+        expected_dataset_labels = {
+            cache_view.require(link.section, "DataLayoutSection").ui_label
+            for link in data_export_config.section_mapping.section_mapping_links
+        }
+        assert set(target.parts) == expected_dataset_labels
+
+        for link in data_export_config.section_mapping.section_mapping_links:
+            dataset_label = cache_view.require(
+                link.section, "DataLayoutSection"
+            ).ui_label
+            dataset = target.parts[dataset_label]
+            for observation_id in link.observation_id_list:
+                assert observation_id in dataset.observation_ids
+
+            layout_section = cache_view.require(
+                link.section, "DataLayoutSection"
+            )
+            element_labels_in_section = {
+                element.label for element in layout_section.elements
+            }
+            schema_labels = set(dataset.get_element_labels())
+            assert schema_labels.issubset(element_labels_in_section)
+
+        assert dict(target._context_index) == dict(via_import._context_index)
+        assert {
+            obs_id: set(labels) for obs_id, labels in target._obs_index.items()
+        } == {
+            obs_id: set(labels)
+            for obs_id, labels in via_import._obs_index.items()
+        }
+
+        sample_key, expected_pair = next(iter(target._context_index.items()))
+        sample_observation_id, sample_property_id = sample_key
+        assert (
+            target.context_lookup(sample_observation_id, sample_property_id)
+            == expected_pair
+        )
+
     def test_one_observation_to_many_datasets(self):
         ds = DatasetSeries(label="test")
         with pytest.raises(AssertionError, match=r".*obs_test.*"):

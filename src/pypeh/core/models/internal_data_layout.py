@@ -805,13 +805,13 @@ class DatasetSeries(Resource, Generic[T_DataType]):
         return ret
 
     @classmethod
-    def from_peh_data_import_config(
+    def from_peh_data_config(
         cls,
-        data_import_config: peh.DataImportConfig,
+        data_config: peh.DataImportConfig | peh.DataExportConfig,
         cache_view: CacheContainerView,
         identifier_provider: IdentifierProvider | None = None,
     ) -> DatasetSeries:
-        data_layout_id = data_import_config.layout
+        data_layout_id = data_config.layout
         assert data_layout_id is not None
         data_layout = cache_view.require(data_layout_id, "DataLayout")
         assert isinstance(data_layout, peh.DataLayout)
@@ -825,7 +825,7 @@ class DatasetSeries(Resource, Generic[T_DataType]):
         )
 
         # add Observation links
-        section_mapping = data_import_config.section_mapping
+        section_mapping = data_config.section_mapping
         assert isinstance(section_mapping, peh.DataImportSectionMapping)
         section_mapping_links = section_mapping.section_mapping_links
         assert isinstance(section_mapping_links, list)
