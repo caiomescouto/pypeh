@@ -233,6 +233,26 @@ fields for one observation are spread across multiple datasets, the adapter can
 join those fields into one output dataset when the `DatasetSeries` declares the
 required foreign-key links.
 
+When multiple source datasets contribute fields with the same column label to
+one observation dataset, `label_collision_strategy` controls how split output
+labels are handled:
+
+- `"prefix_source_dataset"` is the default and preserves the historical
+  behavior. The first occurrence keeps its label; later collisions are prefixed
+  with the source dataset label, for example `UAPFAS_egg_lab__pftrds`.
+- `"prefix_observable_property_id"` prefixes collisions with the unique tail of
+  the observable property identifier, for example `01KT68...__pftrds`. This is
+  useful when provenance should be tied to the semantic variable rather than the
+  source table.
+- `"error"` raises a `ValueError` instead of renaming colliding fields.
+
+Split stores the semantic mapping from `(observation, observable property)` to
+the actual output `DatasetSchemaElement.label`. Downstream dataframe operations
+use that schema label, not the observable property's `short_name` or
+`ui_label`, so enrichment can still find columns that were renamed during
+split. Split also records the original source dataset and field in dataset
+metadata so later label strategies can preserve source provenance.
+
 Pass `new_dataset_series_label` when you want to control the returned series
 label:
 
@@ -240,6 +260,7 @@ label:
 observation_dataset_series = session.split_dataset_series_by_observation(
     source_dataset_series=dataset_series,
     new_dataset_series_label="study_by_observation",
+    label_collision_strategy="prefix_source_dataset",
 )
 ```
 
@@ -332,6 +353,42 @@ summary = session.aggregate(
 
 The target observation list and source observation list must have the same
 length.
+
+Derived target observations can also contain multiple observable properties
+whose preferred output labels are identical. By default, `enrich` and
+`aggregate` reject this because dataframe adapters need concrete column names
+and silently overwriting one target would make the dependency graph
+inconsistent.
+
+Use `target_label_collision_strategy` when duplicate target labels are expected:
+
+- `"error"` is the default. It raises when two target observable properties
+  resolve to the same output label.
+- `"prefix_observable_property_id"` prefixes the output label with the unique
+  tail of the observable property identifier, which is robust but less
+  human-readable.
+- `"prefix_source_dataset"` prefixes the output label with the source dataset
+  that feeds the derived
+  calculation. This is useful when two derived variables have the same
+  `short_name`/`ui_label` but come from different source tabs. If enrichment is
+  performed after `split_dataset_series_by_observation`, this strategy uses the
+  source provenance recorded by split rather than the post-split dataset label.
+
+```python
+enriched = session.enrich(
+    source_dataset_series=observation_dataset_series,
+    target_observations=target_observations,
+    target_derived_from=source_observations,
+    target_label_collision_strategy="prefix_source_dataset",
+)
+
+summary = session.aggregate(
+    source_dataset_series=observation_dataset_series,
+    target_observations=target_observations,
+    target_derived_from=source_observations,
+    target_label_collision_strategy="prefix_source_dataset",
+)
+```
 
 ## Namespaces and Minting
 

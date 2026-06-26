@@ -200,6 +200,7 @@ class RecordingAggregationAdapter(AggregationInterface):
         target_observations: list[Observation],
         target_derived_from: list[Observation],
         cache_view: CacheContainerView,
+        target_label_collision_strategy: str = "error",
     ) -> DatasetSeries:
         self.calls.append(
             {
@@ -207,6 +208,9 @@ class RecordingAggregationAdapter(AggregationInterface):
                 "target_observations": target_observations,
                 "target_derived_from": target_derived_from,
                 "cache_view": cache_view,
+                "target_label_collision_strategy": (
+                    target_label_collision_strategy
+                ),
             }
         )
         return self._result
@@ -263,6 +267,7 @@ class RecordingEnrichmentAdapter(DataEnrichmentInterface):
         target_observations: list[Observation],
         target_derived_from: list[Observation],
         cache_view: CacheContainerView,
+        target_label_collision_strategy: str = "error",
     ) -> DatasetSeries:
         self.calls.append(
             {
@@ -270,6 +275,9 @@ class RecordingEnrichmentAdapter(DataEnrichmentInterface):
                 "target_observations": target_observations,
                 "target_derived_from": target_derived_from,
                 "cache_view": cache_view,
+                "target_label_collision_strategy": (
+                    target_label_collision_strategy
+                ),
             }
         )
         return self._result
@@ -280,12 +288,14 @@ class RecordingEnrichmentAdapter(DataEnrichmentInterface):
         *,
         new_label: str | None = None,
         cache_view: CacheContainerView | None = None,
+        label_collision_strategy: str = "prefix_source_dataset",
     ) -> DatasetSeries:
         self.calls.append(
             {
                 "dataset_series": dataset_series,
                 "new_label": new_label,
                 "cache_view": cache_view,
+                "label_collision_strategy": label_collision_strategy,
             }
         )
         return self._result
@@ -365,6 +375,7 @@ class TestSessionAggregate:
             target_observations=target_observations,
             target_derived_from=target_derived_from,
             target_dataset_labels=target_dataset_labels,
+            target_label_collision_strategy="prefix_source_dataset",
         )
 
         assert result is expected
@@ -373,6 +384,9 @@ class TestSessionAggregate:
         assert call["source_dataset_series"] is source_dataset_series
         assert call["target_observations"] is target_observations
         assert call["target_derived_from"] is target_derived_from
+        assert (
+            call["target_label_collision_strategy"] == "prefix_source_dataset"
+        )
         assert isinstance(call["cache_view"], CacheContainerView)
         assert call["cache_view"]._container is session.cache
 
@@ -422,6 +436,7 @@ class TestSessionEnrich:
             target_observations=target_observations,
             target_derived_from=target_derived_from,
             target_dataset_labels=target_dataset_labels,
+            target_label_collision_strategy="prefix_source_dataset",
         )
 
         assert result is expected
@@ -430,6 +445,9 @@ class TestSessionEnrich:
         assert call["source_dataset_series"] is source_dataset_series
         assert call["target_observations"] is target_observations
         assert call["target_derived_from"] is target_derived_from
+        assert (
+            call["target_label_collision_strategy"] == "prefix_source_dataset"
+        )
         assert isinstance(call["cache_view"], CacheContainerView)
         assert call["cache_view"]._container is session.cache
 
@@ -459,6 +477,7 @@ class TestSessionSplitDatasetSeriesByObservation:
         result = session.split_dataset_series_by_observation(
             source_dataset_series=source_dataset_series,
             new_dataset_series_label="custom_split",
+            label_collision_strategy="prefix_source_dataset",
         )
 
         assert result is expected
@@ -466,6 +485,7 @@ class TestSessionSplitDatasetSeriesByObservation:
         call = adapter.calls[0]
         assert call["dataset_series"] is source_dataset_series
         assert call["new_label"] == "custom_split"
+        assert call["label_collision_strategy"] == "prefix_source_dataset"
         assert isinstance(call["cache_view"], CacheContainerView)
         assert call["cache_view"]._container is session.cache
 
@@ -485,5 +505,6 @@ class TestSessionSplitDatasetSeriesByObservation:
         call = adapter.calls[0]
         assert call["dataset_series"] is source_dataset_series
         assert call["new_label"] is None
+        assert call["label_collision_strategy"] == "prefix_source_dataset"
         assert isinstance(call["cache_view"], CacheContainerView)
         assert call["cache_view"]._container is session.cache

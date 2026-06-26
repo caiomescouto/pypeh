@@ -41,6 +41,7 @@ from pypeh.core.interfaces.dataops import (
     AggregationInterface,
     DataOpsInterface,
     DataEnrichmentInterface,
+    LabelCollisionStrategy,
     ValidationInterface,
 )
 from pypeh.adapters.persistence.dataset_parquet import (
@@ -744,6 +745,9 @@ class Session(Generic[T_AdapterType, T_DataType]):
         self,
         source_dataset_series: DatasetSeries[T_DataType],
         new_dataset_series_label: str | None = None,
+        label_collision_strategy: LabelCollisionStrategy = (
+            "prefix_source_dataset"
+        ),
         adapter_label: str = "dataops",
     ) -> DatasetSeries[T_DataType]:
         """Split a DatasetSeries into observation-specific datasets."""
@@ -754,6 +758,7 @@ class Session(Generic[T_AdapterType, T_DataType]):
             dataset_series=source_dataset_series,
             new_label=new_dataset_series_label,
             cache_view=cache_view,
+            label_collision_strategy=label_collision_strategy,
         )
         assert isinstance(ret, DatasetSeries)
         return ret
@@ -764,6 +769,7 @@ class Session(Generic[T_AdapterType, T_DataType]):
         target_observations: list[peh.Observation],
         target_derived_from: list[peh.Observation],
         target_dataset_labels: list[str] | None = None,
+        target_label_collision_strategy: LabelCollisionStrategy = "error",
         adapter_label: str = "enrichment",
     ) -> DatasetSeries:
         num_targets = len(target_observations)
@@ -779,6 +785,7 @@ class Session(Generic[T_AdapterType, T_DataType]):
             source_dataset_series=source_dataset_series,
             target_observations=target_observations,
             target_derived_from=target_derived_from,
+            target_label_collision_strategy=target_label_collision_strategy,
             cache_view=CacheContainerView(self.cache),
         )
 
@@ -788,6 +795,7 @@ class Session(Generic[T_AdapterType, T_DataType]):
         target_observations: list[peh.Observation],
         target_derived_from: list[peh.Observation],
         target_dataset_labels: list[str] | None = None,
+        target_label_collision_strategy: LabelCollisionStrategy = "error",
         adapter_label: str = "aggregation",
     ) -> DatasetSeries:
         num_targets = len(target_observations)
@@ -803,6 +811,7 @@ class Session(Generic[T_AdapterType, T_DataType]):
             source_dataset_series=source_dataset_series,
             target_observations=target_observations,
             target_derived_from=target_derived_from,
+            target_label_collision_strategy=target_label_collision_strategy,
             cache_view=CacheContainerView(self.cache),
         )
 

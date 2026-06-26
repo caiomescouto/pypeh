@@ -653,14 +653,24 @@ class DatasetSeries(Resource, Generic[T_DataType]):
         observation_id: str,
         dataset_label: str,
         element_label: str,
+        allow_existing: bool = False,
     ):
         assert isinstance(
             element_label, str
         ), "Context index element labels must be strings"
-        self._context_index[(observation_id, observable_property_id)] = (
-            dataset_label,
-            element_label,
-        )
+        key = (observation_id, observable_property_id)
+        contextual_ref = (dataset_label, element_label)
+        existing_ref = self._context_index.get(key)
+        if existing_ref is not None:
+            if existing_ref == contextual_ref or allow_existing:
+                return
+            raise ValueError(
+                "DatasetSeries context index already contains observation "
+                f"{observation_id!r} and observable property "
+                f"{observable_property_id!r} mapped to {existing_ref!r}; "
+                f"cannot remap to {contextual_ref!r}."
+            )
+        self._context_index[key] = contextual_ref
 
     def _unregister_observable_property(
         self,
@@ -975,6 +985,7 @@ class DatasetSeries(Resource, Generic[T_DataType]):
             observation_id=observation_id,
             dataset_label=dataset_label,
             element_label=schema_element.label,
+            allow_existing=is_primary_key,
         )
         return schema_element
 
@@ -1050,6 +1061,7 @@ class DatasetSeries(Resource, Generic[T_DataType]):
                         observation_id=observation.id,
                         dataset_label=dataset_label,
                         element_label=element_label,
+                        allow_existing=identifying,
                     )
                     continue
             _ = self.add_observable_property(
