@@ -19,11 +19,13 @@ ENTITYLIST_MAPPING = {
     "PhysicalEntity": "physical_entities",
     "ObservationGroup": "observation_groups",
     "Observation": "observations",
+    "DerivedObservation": "derived_observations",
     "ObservationDesign": "observation_designs",
     "ObservationResult": "observation_results",
     "ObservedValue": "observed_values",
     "DataLayout": "layouts",
     "DataImportConfig": "import_configs",
+    # "DataExportConfig": "export_configs", # TODO: remove this with peh-model 0.6.3 release
     "DataRequest": "data_requests",
 }
 
