@@ -68,6 +68,25 @@ class TestSessionDump:
         assert isinstance(test_data, dict)
         assert "observations" in test_data
 
+    def test_dump_entity_list_includes_derived_observations(self, tmp_path):
+        session = get_session("./input/unpack_resource")
+        assert isinstance(session, Session)
+        session.load_persisted_cache(
+            source="unpack_derived_observation_group.yaml",
+            connection_label="local_file",
+        )
+        dest = tmp_path / "out.yaml"
+        session.dump_cache(
+            output_path=dest,
+            connection_label="local_file",
+        )
+        data = dest.read_bytes()
+        assert data, "Dumped file is empty"
+        test_data = yaml.safe_load(data.decode("utf-8"))
+        assert isinstance(test_data, dict)
+        assert "derived_observations" in test_data
+        assert len(test_data["derived_observations"]) == 3
+
 
 @pytest.mark.core
 class TestSessionMint:
