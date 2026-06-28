@@ -14,6 +14,11 @@ from pypeh.core.models.validation_errors import (
     ValidationErrorReport,
     build_type_cast_error_report,
 )
+from pypeh.adapters.persistence.temporal import (
+    TemporalCastCheck,
+    build_temporal_cast,
+    is_temporal_type,
+)
 from pypeh.adapters.persistence.serializations import IOAdapter
 
 logger = logging.getLogger(__name__)
@@ -109,7 +114,10 @@ class ExcelIOImpl(IOAdapter):
 
         def to_reader_dtype(
             polars_type: DataType | DataTypeClass,
-        ) -> str:
+        ) -> str | None:
+            if is_temporal_type(polars_type):
+                return None
+
             base_type = polars_type.base_type()
             if base_type in {
                 pl.Int8,
@@ -130,12 +138,19 @@ class ExcelIOImpl(IOAdapter):
             return "string"
 
         if cast_error_policy == "null":
-            return {
-                column_name: to_reader_dtype(polars_type)
-                for column_name, polars_type in typed_schema.items()
-            }
+            read_dtypes = {}
+            for column_name, polars_type in typed_schema.items():
+                reader_dtype = to_reader_dtype(polars_type)
+                if reader_dtype is not None:
+                    read_dtypes[column_name] = reader_dtype
+            return read_dtypes or None
 
-        return dict.fromkeys(typed_schema, "string")
+        read_dtypes = {
+            column_name: "string"
+            for column_name, polars_type in typed_schema.items()
+            if not is_temporal_type(polars_type)
+        }
+        return read_dtypes or None
 
     def _cast_frame_to_schema(
         self,
@@ -148,24 +163,47 @@ class ExcelIOImpl(IOAdapter):
         if typed_schema is None:
             return data
 
-        cast_expressions = [
-            pl.col(column_name).cast(
+        strict = cast_error_policy == "raise"
+        cast_expressions = []
+        strict_temporal_checks: list[TemporalCastCheck] = []
+        for column_name, polars_type in typed_schema.items():
+            if column_name not in data.columns:
+                continue
+
+            source_type = data.schema[column_name].base_type()
+            temporal_cast = build_temporal_cast(
+                column_name,
+                source_type,
                 polars_type,
-                strict=cast_error_policy == "raise",
+                strict=strict,
             )
-            for column_name, polars_type in typed_schema.items()
-            if column_name in data.columns
-        ]
+            if temporal_cast is not None:
+                cast_expressions.append(temporal_cast.expression)
+                if temporal_cast.strict_check is not None:
+                    strict_temporal_checks.append(temporal_cast.strict_check)
+                continue
+
+            cast_expressions.append(
+                pl.col(column_name).cast(
+                    polars_type,
+                    strict=strict,
+                )
+            )
         if not cast_expressions:
             return data
 
         try:
-            return data.with_columns(cast_expressions)
-        except pl.exceptions.InvalidOperationError as exc:
+            cast_data = data.with_columns(cast_expressions)
+        except pl.exceptions.PolarsError as exc:
             raise TypeCastError(
                 "Failed to cast Excel sheet "
                 f"{section_name!r} using cast_error_policy='raise': {exc}"
             ) from exc
+
+        for check in strict_temporal_checks:
+            check.validate(data, cast_data, section_name=section_name)
+
+        return cast_data
 
     def _load(
         self, source: Union[str, Path, IO[str], IO[bytes], bytes], **options
