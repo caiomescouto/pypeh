@@ -39,6 +39,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+SOURCE_FIELDS_BY_OBSERVABLE_PROPERTY_METADATA_KEY = (
+    "source_fields_by_observable_property"
+)
+
 JoinHow = Literal[
     "inner",
     "left",
@@ -47,6 +51,12 @@ JoinHow = Literal[
     "semi",
     "anti",
     "cross",
+]
+
+LabelCollisionStrategy = Literal[
+    "error",
+    "prefix_observable_property_id",
+    "prefix_source_dataset",
 ]
 
 
@@ -270,10 +280,143 @@ class DataOpsInterface(Generic[T_DataType]):
 
         return ret
 
+    @staticmethod
+    def _observable_property_element_label(
+        observable_property: peh.ObservableProperty,
+    ) -> str:
+        element_label = observable_property.short_name
+        if element_label is None:
+            element_label = observable_property.ui_label
+        if element_label is None:
+            element_label = observable_property.id
+        assert isinstance(element_label, str)
+        return element_label
+
+    @staticmethod
+    def _identifier_tail(identifier: str) -> str:
+        return identifier.rsplit("/", 1)[-1].rsplit(":", 1)[-1]
+
+    def _infer_source_dataset_label_for_calculation(
+        self,
+        observable_property: peh.ObservableProperty,
+        source_dataset_series: DatasetSeries | None,
+    ) -> str:
+        if source_dataset_series is None:
+            raise ValueError(
+                "Cannot use target label collision strategy "
+                "'prefix_source_dataset' without a source DatasetSeries."
+            )
+        calculation_design = observable_property.calculation_design
+        if calculation_design is None:
+            raise ValueError(
+                "Cannot use target label collision strategy "
+                "'prefix_source_dataset' for observable property "
+                f"{observable_property.id!r} because it has no calculation "
+                "design."
+            )
+        calculation_implementation = (
+            calculation_design.calculation_implementation
+        )
+        assert isinstance(
+            calculation_implementation,
+            peh.CalculationImplementation,
+        )
+        function_kwargs = calculation_implementation.function_kwargs or []
+
+        source_dataset_labels: set[str] = set()
+        for function_kwarg in function_kwargs:
+            assert isinstance(function_kwarg, peh.CalculationKeywordArgument)
+            source_field_ref = getattr(
+                function_kwarg, "contextual_field_reference", None
+            )
+            if source_field_ref is None:
+                continue
+            assert isinstance(source_field_ref, peh.ContextualFieldReference)
+            source_observation_id = source_field_ref.dataset_label
+            source_observable_property_id = source_field_ref.field_label
+            assert source_observation_id is not None
+            assert source_observable_property_id is not None
+            source_dataset_label, _ = source_dataset_series.context_lookup(
+                source_observation_id,
+                source_observable_property_id,
+            )
+            source_dataset = source_dataset_series[source_dataset_label]
+            if source_dataset is not None:
+                source_fields = source_dataset.metadata.get(
+                    SOURCE_FIELDS_BY_OBSERVABLE_PROPERTY_METADATA_KEY,
+                    {},
+                )
+                source_field = source_fields.get(source_observable_property_id)
+                if source_field is not None:
+                    source_dataset_label = source_field["dataset_label"]
+            source_dataset_labels.add(source_dataset_label)
+
+        if len(source_dataset_labels) != 1:
+            raise ValueError(
+                "Cannot resolve target label collision for observable "
+                f"property {observable_property.id!r} using source dataset "
+                f"prefix; expected one source dataset, found "
+                f"{sorted(source_dataset_labels)!r}."
+            )
+        return next(iter(source_dataset_labels))
+
+    def _resolve_target_element_label_collision(
+        self,
+        element_label: str,
+        observable_property: peh.ObservableProperty,
+        *,
+        label_collision_strategy: LabelCollisionStrategy,
+        source_dataset_series: DatasetSeries | None,
+    ) -> str:
+        if label_collision_strategy == "prefix_observable_property_id":
+            prefix = self._identifier_tail(observable_property.id)
+        elif label_collision_strategy == "prefix_source_dataset":
+            prefix = self._infer_source_dataset_label_for_calculation(
+                observable_property,
+                source_dataset_series,
+            )
+        else:
+            raise NotImplementedError(
+                "Unsupported target label collision strategy "
+                f"{label_collision_strategy!r}."
+            )
+        return f"{prefix}__{element_label}"
+
+    @staticmethod
+    def _raise_target_element_label_collision(
+        observation: peh.Observation,
+        element_label: str,
+        observable_properties: Sequence[peh.ObservableProperty],
+    ) -> None:
+        observable_property_ids = [
+            observable_property.id
+            for observable_property in observable_properties
+        ]
+        raise ValueError(
+            f"Observation {observation.id!r} resolves multiple observable "
+            f"properties to element label {element_label!r}: "
+            f"{observable_property_ids!r}."
+        )
+
+    @staticmethod
+    def _raise_resolved_target_element_label_collision(
+        observation: peh.Observation,
+        element_label: str,
+    ) -> None:
+        raise ValueError(
+            f"Observation {observation.id!r} resolves target element label "
+            f"{element_label!r} more than once after collision resolution."
+        )
+
     def extract_labeled_observable_property_specifications(
-        self, observation: peh.Observation, cache_view: CacheContainerView
+        self,
+        observation: peh.Observation,
+        cache_view: CacheContainerView,
+        *,
+        label_collision_strategy: LabelCollisionStrategy = "error",
+        source_dataset_series: DatasetSeries | None = None,
     ) -> dict[str, peh.ObservablePropertySpecification]:
-        ret = {}
+        ret: dict[str, peh.ObservablePropertySpecification] = {}
         observation_design_id = observation.observation_design
         assert isinstance(observation_design_id, str)
         observation_design = cache_view.require(
@@ -284,6 +427,14 @@ class DataOpsInterface(Generic[T_DataType]):
             observation_design.observable_property_specifications
         )
         assert observable_property_specs is not None
+        specs_by_element_label: dict[
+            str,
+            list[
+                tuple[
+                    peh.ObservableProperty, peh.ObservablePropertySpecification
+                ]
+            ],
+        ] = defaultdict(list)
         for observable_property_spec in observable_property_specs:
             observable_property = cache_view.require(
                 observable_property_spec.observable_property,
@@ -292,13 +443,41 @@ class DataOpsInterface(Generic[T_DataType]):
             assert isinstance(
                 observable_property, peh.ObservableProperty
             ), f"Could not find observable property with id {observable_property_spec.observable_property} in cache."
-            element_label = observable_property.short_name
-            if element_label is None:
-                element_label = observable_property.ui_label
-            if element_label is None:
-                element_label = observable_property.id
-            assert isinstance(element_label, str)
-            ret[element_label] = observable_property_spec
+            element_label = self._observable_property_element_label(
+                observable_property
+            )
+            specs_by_element_label[element_label].append(
+                (observable_property, observable_property_spec)
+            )
+
+        for element_label, specs in specs_by_element_label.items():
+            if len(specs) == 1:
+                if element_label in ret:
+                    self._raise_resolved_target_element_label_collision(
+                        observation, element_label
+                    )
+                ret[element_label] = specs[0][1]
+                continue
+            if label_collision_strategy == "error":
+                self._raise_target_element_label_collision(
+                    observation,
+                    element_label,
+                    [observable_property for observable_property, _ in specs],
+                )
+            for observable_property, observable_property_spec in specs:
+                resolved_element_label = (
+                    self._resolve_target_element_label_collision(
+                        element_label,
+                        observable_property,
+                        label_collision_strategy=label_collision_strategy,
+                        source_dataset_series=source_dataset_series,
+                    )
+                )
+                if resolved_element_label in ret:
+                    self._raise_resolved_target_element_label_collision(
+                        observation, resolved_element_label
+                    )
+                ret[resolved_element_label] = observable_property_spec
         return ret
 
     def get_dataset_by_observation_id(
@@ -315,16 +494,35 @@ class DataOpsInterface(Generic[T_DataType]):
             pass
         return dataset
 
-    @staticmethod
     def _build_unique_label(
+        self,
         candidate: str,
         used_labels: set[str],
         dataset_label: str | None = None,
+        observable_property_id: str | None = None,
+        label_collision_strategy: LabelCollisionStrategy = (
+            "prefix_source_dataset"
+        ),
     ) -> str:
         if candidate not in used_labels:
             return candidate
 
-        prefix = dataset_label if dataset_label is not None else "field"
+        if label_collision_strategy == "error":
+            raise ValueError(
+                f"Output field label {candidate!r} would collide while "
+                "splitting DatasetSeries by observation."
+            )
+
+        if label_collision_strategy == "prefix_observable_property_id":
+            prefix = (
+                self._identifier_tail(observable_property_id)
+                if observable_property_id is not None
+                else dataset_label
+            )
+        else:
+            prefix = dataset_label if dataset_label is not None else "field"
+        if prefix is None:
+            prefix = "field"
         numbered_prefix = f"{prefix}__{candidate}"
         if numbered_prefix not in used_labels:
             return numbered_prefix
@@ -447,6 +645,11 @@ class DataOpsInterface(Generic[T_DataType]):
         self,
         source_dataset_labels: list[str],
         required_fields_by_dataset: dict[str, set[str]],
+        label_collision_strategy: LabelCollisionStrategy = (
+            "prefix_source_dataset"
+        ),
+        observable_property_by_source_field: dict[tuple[str, str], str]
+        | None = None,
     ) -> dict[tuple[str, str], str]:
         used_output_labels: set[str] = set()
         field_label_mapping: dict[tuple[str, str], str] = {}
@@ -459,6 +662,10 @@ class DataOpsInterface(Generic[T_DataType]):
                     field_label,
                     used_output_labels,
                     dataset_label=source_label,
+                    observable_property_id=(
+                        observable_property_by_source_field or {}
+                    ).get((source_label, field_label)),
+                    label_collision_strategy=label_collision_strategy,
                 )
                 used_output_labels.add(unique_label)
                 field_label_mapping[(source_label, field_label)] = unique_label
@@ -589,9 +796,13 @@ class DataOpsInterface(Generic[T_DataType]):
             metadata={
                 "source_datasets": source_dataset_labels,
                 "observation_id": observation_id,
+                SOURCE_FIELDS_BY_OBSERVABLE_PROPERTY_METADATA_KEY: {},
             },
         )
         output_dataset.observation_ids.add(observation_id)
+        output_source_fields = output_dataset.metadata[
+            SOURCE_FIELDS_BY_OBSERVABLE_PROPERTY_METADATA_KEY
+        ]
 
         for (
             observable_property_id,
@@ -619,6 +830,10 @@ class DataOpsInterface(Generic[T_DataType]):
                 element_label=final_field_label,
                 is_primary_key=is_primary_key,
             )
+            output_source_fields[observable_property_id] = {
+                "dataset_label": source_label,
+                "element_label": source_field_label,
+            }
 
         output_dataset.data = final_data
 
@@ -787,6 +1002,9 @@ class DataOpsInterface(Generic[T_DataType]):
         *,
         new_label: str | None = None,
         cache_view: CacheContainerView | None = None,
+        label_collision_strategy: LabelCollisionStrategy = (
+            "prefix_source_dataset"
+        ),
     ) -> DatasetSeries[T_DataType]:
         """
         Return a new DatasetSeries where each Dataset maps to exactly one Observation.
@@ -846,8 +1064,19 @@ class DataOpsInterface(Generic[T_DataType]):
                 base_dataset_label,
                 required_fields_by_dataset,
             )
+            observable_property_by_source_field = {
+                source_ref: observable_property_id
+                for observable_property_id, source_ref in (
+                    observable_property_context.items()
+                )
+            }
             field_label_mapping = self._build_field_label_mapping(
-                source_dataset_labels, required_fields_by_dataset
+                source_dataset_labels,
+                required_fields_by_dataset,
+                label_collision_strategy=label_collision_strategy,
+                observable_property_by_source_field=(
+                    observable_property_by_source_field
+                ),
             )
 
             datasets_for_join = self._prepare_datasets_for_join(
@@ -1643,6 +1872,7 @@ class DataEnrichmentInterface(DataOpsInterface, Generic[T_DataType]):
         target_observations: list[peh.Observation],
         target_derived_from: list[peh.Observation],
         cache_view: CacheContainerView,
+        target_label_collision_strategy: LabelCollisionStrategy = "error",
     ) -> DatasetSeries:
         # ADD TARGET OBSERVATION TO SOURCE_DATASET_SERIES
         for source_obs, target_observation in zip(
@@ -1657,7 +1887,10 @@ class DataEnrichmentInterface(DataOpsInterface, Generic[T_DataType]):
             source_dataset_label = source_dataset.label
             labeled_observable_property_specifications = (
                 self.extract_labeled_observable_property_specifications(
-                    target_observation, cache_view=cache_view
+                    target_observation,
+                    cache_view=cache_view,
+                    label_collision_strategy=target_label_collision_strategy,
+                    source_dataset_series=source_dataset_series,
                 )
             )
             source_dataset_series.add_observation(
@@ -1817,6 +2050,7 @@ class AggregationInterface(DataOpsInterface, Generic[T_DataType]):
         target_observations: list[peh.Observation],
         target_derived_from: list[peh.Observation],
         cache_view: CacheContainerView,
+        target_label_collision_strategy: LabelCollisionStrategy = "error",
     ) -> DatasetSeries:
         # ADD TARGET OBSERVATION TO A NEW DATASET_SERIES
         aggregated_dataset_series: DatasetSeries = DatasetSeries(
@@ -1841,7 +2075,12 @@ class AggregationInterface(DataOpsInterface, Generic[T_DataType]):
             if label := target_observation.ui_label:
                 labeled_observable_property_specifications = (
                     self.extract_labeled_observable_property_specifications(
-                        target_observation, cache_view=cache_view
+                        target_observation,
+                        cache_view=cache_view,
+                        label_collision_strategy=(
+                            target_label_collision_strategy
+                        ),
+                        source_dataset_series=source_dataset_series,
                     )
                 )
                 target_dataset = aggregated_dataset_series.add_observation(
@@ -1929,8 +2168,10 @@ class AggregationInterface(DataOpsInterface, Generic[T_DataType]):
                             "contextual_field_reference without mapping_name "
                             "to identify the value column."
                         )
-                    target_label = observable_property.ui_label
-                    assert target_label is not None
+                    _, target_label = aggregated_dataset_series.context_lookup(
+                        target_observation.id,
+                        observable_property.id,
+                    )
                     stat_specs = stat_specs_by_value_col.setdefault(
                         value_col,
                         {

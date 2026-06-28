@@ -1043,3 +1043,54 @@ class TestToTarget:
             dict(source_dataset_series._context_index)
             == expected_context_index
         )
+
+    def test_register_observable_property_rejects_context_remap(self):
+        dataset_series = DatasetSeries(label="context_collision")
+        dataset_series.add_empty_dataset("first_dataset")
+        dataset_series.add_empty_dataset("second_dataset")
+        dataset_series._register_observable_property(
+            "peh:measure", "peh:observation", "first_dataset", "measure"
+        )
+
+        with pytest.raises(
+            ValueError,
+            match=(
+                "already contains observation .* and observable property "
+                ".* cannot remap"
+            ),
+        ):
+            dataset_series._register_observable_property(
+                "peh:measure",
+                "peh:observation",
+                "second_dataset",
+                "measure",
+            )
+
+        assert dataset_series.context_lookup(
+            "peh:observation", "peh:measure"
+        ) == ("first_dataset", "measure")
+
+    def test_add_observable_property_rejects_context_remap(self):
+        dataset_series = DatasetSeries(label="context_collision")
+        dataset_series.add_empty_dataset("first_dataset")
+        dataset_series.add_empty_dataset("second_dataset")
+        dataset_series.add_observable_property(
+            observation_id="peh:observation",
+            observable_property_id="peh:measure",
+            data_type=ObservablePropertyValueType.STRING,
+            dataset_label="first_dataset",
+            element_label="measure",
+        )
+
+        with pytest.raises(ValueError, match="cannot remap"):
+            dataset_series.add_observable_property(
+                observation_id="peh:observation",
+                observable_property_id="peh:measure",
+                data_type=ObservablePropertyValueType.STRING,
+                dataset_label="second_dataset",
+                element_label="measure",
+            )
+
+        assert dataset_series.context_lookup(
+            "peh:observation", "peh:measure"
+        ) == ("first_dataset", "measure")

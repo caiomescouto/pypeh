@@ -6,6 +6,10 @@ import re
 from datetime import date
 from typing import Protocol, Generic
 from peh_model.peh import (
+    CalculationDesign,
+    CalculationImplementation,
+    CalculationKeywordArgument,
+    ContextualFieldReference,
     DataLayout,
     Observation,
     ObservationDesign,
@@ -22,6 +26,7 @@ from pypeh.core.cache.containers import (
 from pypeh.core.cache.utils import load_entities_from_tree
 from pypeh.core.interfaces.dataops import (
     DataOpsInterface,
+    SOURCE_FIELDS_BY_OBSERVABLE_PROPERTY_METADATA_KEY,
     T_DataType,
     ValidationInterface,
 )
@@ -47,6 +52,10 @@ from pypeh.core.models.validation_dto import (
 from pypeh.core.models.graph import ExecutionPlan, Graph
 from pypeh.adapters.persistence.hosts import DirectoryIO
 from tests.test_utils.dirutils import get_absolute_path
+
+
+def add_one(measurement):
+    return measurement + 1
 
 
 class DataOpsProtocol(Protocol, Generic[T_DataType]):
@@ -80,6 +89,7 @@ class DataOpsProtocol(Protocol, Generic[T_DataType]):
         *,
         new_label: str | None = None,
         cache_view: CacheContainerView | None = None,
+        label_collision_strategy="prefix_source_dataset",
     ) -> DatasetSeries[T_DataType]: ...
 
     def enrich(
@@ -88,6 +98,7 @@ class DataOpsProtocol(Protocol, Generic[T_DataType]):
         target_observations,
         target_derived_from,
         cache_view,
+        target_label_collision_strategy="error",
     ): ...
 
     def summarize(
@@ -96,6 +107,7 @@ class DataOpsProtocol(Protocol, Generic[T_DataType]):
         target_observations,
         target_derived_from,
         cache_view,
+        target_label_collision_strategy="error",
     ): ...
 
     def matches_schema(self, raw_data_dict, dataset_series) -> bool: ...
@@ -1019,7 +1031,228 @@ class TestDatasetSeriesMods(abc.ABC):
         assert set(split_series.parts.keys()) == {"obs:1", "obs:2"}
         assert len(split_series.parts["obs:1"].observation_ids) == 1
         assert len(split_series.parts["obs:2"].observation_ids) == 1
+        assert split_series.parts["obs:1"].metadata[
+            SOURCE_FIELDS_BY_OBSERVABLE_PROPERTY_METADATA_KEY
+        ] == {
+            "obs1_left_prop": {
+                "dataset_label": "left",
+                "element_label": "left_measure",
+            },
+            "obs1_right_prop": {
+                "dataset_label": "right",
+                "element_label": "right_measure",
+            },
+            "shared_id_prop": {
+                "dataset_label": "left",
+                "element_label": "id",
+            },
+        }
         self.verify_join_and_single_dataset(split_series, adapter)
+
+    def test_split_by_observation_prefixes_colliding_fields(self):
+        adapter = self.get_adapter()
+        dataset_series = DatasetSeries(label="prefix_split_case")
+
+        left_dataset = dataset_series.add_empty_dataset("left")
+        right_dataset = dataset_series.add_empty_dataset("right")
+        left_dataset.add_observation_to_index("obs:1")
+        right_dataset.add_observation_to_index("obs:1")
+
+        left_dataset.add_observable_property(
+            observable_property_id="id_prop",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="id",
+            is_primary_key=True,
+        )
+        left_dataset.add_observable_property(
+            observable_property_id="left_prop",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="measure",
+        )
+        right_dataset.add_observable_property(
+            observable_property_id="right_id_prop",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="id",
+        )
+        right_dataset.add_observable_property(
+            observable_property_id="right_prop",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="measure",
+        )
+        right_dataset.schema.add_foreign_key_link(
+            element_label="id",
+            foreign_key_dataset_label="left",
+            foreign_key_element_label="id",
+        )
+        dataset_series._register_observable_property(
+            "id_prop", "obs:1", "left", "id"
+        )
+        dataset_series._register_observable_property(
+            "left_prop", "obs:1", "left", "measure"
+        )
+        dataset_series._register_observable_property(
+            "right_prop", "obs:1", "right", "measure"
+        )
+
+        left_data, right_data = self.mixed_join_and_single_dataset_data()
+        left_dataset.data = adapter.relabel(
+            adapter.subset(left_data, element_group=["id", "left_measure"]),
+            {"left_measure": "measure"},
+        )
+        right_dataset.data = adapter.relabel(
+            adapter.subset(
+                right_data, element_group=["left_id", "right_measure"]
+            ),
+            {"left_id": "id", "right_measure": "measure"},
+        )
+
+        split_series = adapter.split_by_observation(
+            dataset_series,
+            label_collision_strategy="prefix_source_dataset",
+        )
+
+        assert split_series.context_lookup("obs:1", "left_prop") == (
+            "obs:1",
+            "measure",
+        )
+        assert split_series.context_lookup("obs:1", "right_prop") == (
+            "obs:1",
+            "right__measure",
+        )
+
+    def test_split_by_observation_prefixes_observable_property_id(self):
+        adapter = self.get_adapter()
+        dataset_series = DatasetSeries(label="observable_prefix_split_case")
+
+        left_dataset = dataset_series.add_empty_dataset("left")
+        right_dataset = dataset_series.add_empty_dataset("right")
+        left_dataset.add_observation_to_index("obs:1")
+        right_dataset.add_observation_to_index("obs:1")
+
+        left_dataset.add_observable_property(
+            observable_property_id="id_prop",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="id",
+            is_primary_key=True,
+        )
+        left_dataset.add_observable_property(
+            observable_property_id="left_prop",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="measure",
+        )
+        right_dataset.add_observable_property(
+            observable_property_id="right_id_prop",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="id",
+        )
+        right_dataset.add_observable_property(
+            observable_property_id="right_prop",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="measure",
+        )
+        right_dataset.schema.add_foreign_key_link(
+            element_label="id",
+            foreign_key_dataset_label="left",
+            foreign_key_element_label="id",
+        )
+        dataset_series._register_observable_property(
+            "id_prop", "obs:1", "left", "id"
+        )
+        dataset_series._register_observable_property(
+            "left_prop", "obs:1", "left", "measure"
+        )
+        dataset_series._register_observable_property(
+            "right_prop", "obs:1", "right", "measure"
+        )
+
+        left_data, right_data = self.mixed_join_and_single_dataset_data()
+        left_dataset.data = adapter.relabel(
+            adapter.subset(left_data, element_group=["id", "left_measure"]),
+            {"left_measure": "measure"},
+        )
+        right_dataset.data = adapter.relabel(
+            adapter.subset(
+                right_data, element_group=["left_id", "right_measure"]
+            ),
+            {"left_id": "id", "right_measure": "measure"},
+        )
+
+        split_series = adapter.split_by_observation(
+            dataset_series,
+            label_collision_strategy="prefix_observable_property_id",
+        )
+
+        assert split_series.context_lookup("obs:1", "left_prop") == (
+            "obs:1",
+            "measure",
+        )
+        assert split_series.context_lookup("obs:1", "right_prop") == (
+            "obs:1",
+            "right_prop__measure",
+        )
+
+    def test_split_by_observation_rejects_colliding_fields(self):
+        adapter = self.get_adapter()
+        dataset_series = DatasetSeries(label="error_split_case")
+
+        left_dataset = dataset_series.add_empty_dataset("left")
+        right_dataset = dataset_series.add_empty_dataset("right")
+        left_dataset.add_observation_to_index("obs:1")
+        right_dataset.add_observation_to_index("obs:1")
+
+        left_dataset.add_observable_property(
+            observable_property_id="id_prop",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="id",
+            is_primary_key=True,
+        )
+        left_dataset.add_observable_property(
+            observable_property_id="left_prop",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="measure",
+        )
+        right_dataset.add_observable_property(
+            observable_property_id="right_id_prop",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="id",
+        )
+        right_dataset.add_observable_property(
+            observable_property_id="right_prop",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="measure",
+        )
+        right_dataset.schema.add_foreign_key_link(
+            element_label="id",
+            foreign_key_dataset_label="left",
+            foreign_key_element_label="id",
+        )
+        dataset_series._register_observable_property(
+            "id_prop", "obs:1", "left", "id"
+        )
+        dataset_series._register_observable_property(
+            "left_prop", "obs:1", "left", "measure"
+        )
+        dataset_series._register_observable_property(
+            "right_prop", "obs:1", "right", "measure"
+        )
+
+        left_data, right_data = self.mixed_join_and_single_dataset_data()
+        left_dataset.data = adapter.relabel(
+            adapter.subset(left_data, element_group=["id", "left_measure"]),
+            {"left_measure": "measure"},
+        )
+        right_dataset.data = adapter.relabel(
+            adapter.subset(
+                right_data, element_group=["left_id", "right_measure"]
+            ),
+            {"left_id": "id", "right_measure": "measure"},
+        )
+
+        with pytest.raises(ValueError, match="would collide"):
+            adapter.split_by_observation(
+                dataset_series,
+                label_collision_strategy="error",
+            )
 
     def test_split_by_observation_uses_observation_label_from_cache(self):
         adapter = self.get_adapter()
@@ -1110,6 +1343,514 @@ class TestDatasetSeriesMods(abc.ABC):
 
         with pytest.raises(ValueError, match="must be unique"):
             adapter.split_by_observation(dataset_series, cache_view=cache_view)
+
+    def test_extract_labeled_specs_rejects_duplicate_element_labels(self):
+        adapter = self.get_adapter()
+        container = CacheContainerFactory.new()
+        container.add(
+            Observation(
+                id="obs:derived",
+                observation_design="design:derived",
+            )
+        )
+        container.add(
+            ObservationDesign(
+                id="design:derived",
+                observable_property_specifications=[
+                    ObservablePropertySpecification(
+                        observable_property="prop:first",
+                        specification_category=(
+                            ObservablePropertySpecificationCategory.derived
+                        ),
+                    ),
+                    ObservablePropertySpecification(
+                        observable_property="prop:second",
+                        specification_category=(
+                            ObservablePropertySpecificationCategory.derived
+                        ),
+                    ),
+                ],
+            )
+        )
+        container.add(
+            ObservableProperty(
+                id="prop:first",
+                short_name="duplicate_label",
+                ui_label="duplicate_label",
+                value_type="string",
+            )
+        )
+        container.add(
+            ObservableProperty(
+                id="prop:second",
+                short_name="duplicate_label",
+                ui_label="duplicate_label",
+                value_type="string",
+            )
+        )
+        cache_view = CacheContainerView(container)
+        observation = cache_view.require("obs:derived", "Observation")
+
+        with pytest.raises(
+            ValueError,
+            match=(
+                "resolves multiple observable properties to element label "
+                "'duplicate_label'"
+            ),
+        ):
+            adapter.extract_labeled_observable_property_specifications(
+                observation, cache_view
+            )
+
+    def test_extract_labeled_specs_prefixes_observable_property_id(self):
+        adapter = self.get_adapter()
+        container = CacheContainerFactory.new()
+        container.add(
+            Observation(
+                id="obs:derived",
+                observation_design="design:derived",
+            )
+        )
+        container.add(
+            ObservationDesign(
+                id="design:derived",
+                observable_property_specifications=[
+                    ObservablePropertySpecification(
+                        observable_property="prop:first",
+                        specification_category=(
+                            ObservablePropertySpecificationCategory.derived
+                        ),
+                    ),
+                    ObservablePropertySpecification(
+                        observable_property="prop:second",
+                        specification_category=(
+                            ObservablePropertySpecificationCategory.derived
+                        ),
+                    ),
+                ],
+            )
+        )
+        container.add(
+            ObservableProperty(
+                id="prop:first",
+                short_name="duplicate_label",
+                value_type="string",
+            )
+        )
+        container.add(
+            ObservableProperty(
+                id="prop:second",
+                short_name="duplicate_label",
+                value_type="string",
+            )
+        )
+        cache_view = CacheContainerView(container)
+        observation = cache_view.require("obs:derived", "Observation")
+
+        specs = adapter.extract_labeled_observable_property_specifications(
+            observation,
+            cache_view,
+            label_collision_strategy="prefix_observable_property_id",
+        )
+
+        assert set(specs) == {
+            "first__duplicate_label",
+            "second__duplicate_label",
+        }
+
+    def test_extract_labeled_specs_prefixes_source_dataset(self):
+        adapter = self.get_adapter()
+        source = DatasetSeries(label="source")
+        source.add_empty_dataset("source_one")
+        source.add_empty_dataset("source_two")
+        source._register_observable_property(
+            "src:first", "obs:source", "source_one", "first_value"
+        )
+        source._register_observable_property(
+            "src:second", "obs:source", "source_two", "second_value"
+        )
+
+        container = CacheContainerFactory.new()
+        container.add(
+            Observation(
+                id="obs:derived",
+                observation_design="design:derived",
+            )
+        )
+        container.add(
+            ObservationDesign(
+                id="design:derived",
+                observable_property_specifications=[
+                    ObservablePropertySpecification(
+                        observable_property="prop:first",
+                        specification_category=(
+                            ObservablePropertySpecificationCategory.derived
+                        ),
+                    ),
+                    ObservablePropertySpecification(
+                        observable_property="prop:second",
+                        specification_category=(
+                            ObservablePropertySpecificationCategory.derived
+                        ),
+                    ),
+                ],
+            )
+        )
+        container.add(
+            ObservableProperty(
+                id="prop:first",
+                short_name="duplicate_label",
+                value_type="string",
+                calculation_design=CalculationDesign(
+                    calculation_implementation=CalculationImplementation(
+                        function_name="fn",
+                        function_kwargs=[
+                            CalculationKeywordArgument(
+                                mapping_name="measurement",
+                                contextual_field_reference=(
+                                    ContextualFieldReference(
+                                        dataset_label="obs:source",
+                                        field_label="src:first",
+                                    )
+                                ),
+                            )
+                        ],
+                    )
+                ),
+            )
+        )
+        container.add(
+            ObservableProperty(
+                id="prop:second",
+                short_name="duplicate_label",
+                value_type="string",
+                calculation_design=CalculationDesign(
+                    calculation_implementation=CalculationImplementation(
+                        function_name="fn",
+                        function_kwargs=[
+                            CalculationKeywordArgument(
+                                mapping_name="measurement",
+                                contextual_field_reference=(
+                                    ContextualFieldReference(
+                                        dataset_label="obs:source",
+                                        field_label="src:second",
+                                    )
+                                ),
+                            )
+                        ],
+                    )
+                ),
+            )
+        )
+        cache_view = CacheContainerView(container)
+        observation = cache_view.require("obs:derived", "Observation")
+
+        specs = adapter.extract_labeled_observable_property_specifications(
+            observation,
+            cache_view,
+            label_collision_strategy="prefix_source_dataset",
+            source_dataset_series=source,
+        )
+
+        assert set(specs) == {
+            "source_one__duplicate_label",
+            "source_two__duplicate_label",
+        }
+
+    def test_extract_labeled_specs_prefixes_split_source_dataset(self):
+        adapter = self.get_adapter()
+        source = DatasetSeries(label="source")
+        source_dataset = source.add_empty_dataset(
+            "source_observation",
+            metadata={
+                SOURCE_FIELDS_BY_OBSERVABLE_PROPERTY_METADATA_KEY: {
+                    "src:first": {
+                        "dataset_label": "source_one",
+                        "element_label": "first_value",
+                    },
+                    "src:second": {
+                        "dataset_label": "source_two",
+                        "element_label": "second_value",
+                    },
+                }
+            },
+        )
+        source_dataset.add_observation_to_index("obs:source")
+        source_dataset.add_observable_property(
+            observable_property_id="src:first",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="first_value",
+        )
+        source_dataset.add_observable_property(
+            observable_property_id="src:second",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="second_value",
+        )
+        source._register_observable_property(
+            "src:first", "obs:source", "source_observation", "first_value"
+        )
+        source._register_observable_property(
+            "src:second", "obs:source", "source_observation", "second_value"
+        )
+
+        container = CacheContainerFactory.new()
+        container.add(
+            Observation(
+                id="obs:derived",
+                observation_design="design:derived",
+            )
+        )
+        container.add(
+            ObservationDesign(
+                id="design:derived",
+                observable_property_specifications=[
+                    ObservablePropertySpecification(
+                        observable_property="prop:first",
+                        specification_category=(
+                            ObservablePropertySpecificationCategory.derived
+                        ),
+                    ),
+                    ObservablePropertySpecification(
+                        observable_property="prop:second",
+                        specification_category=(
+                            ObservablePropertySpecificationCategory.derived
+                        ),
+                    ),
+                ],
+            )
+        )
+        container.add(
+            ObservableProperty(
+                id="prop:first",
+                short_name="duplicate_label",
+                value_type="string",
+                calculation_design=CalculationDesign(
+                    calculation_implementation=CalculationImplementation(
+                        function_name="fn",
+                        function_kwargs=[
+                            CalculationKeywordArgument(
+                                mapping_name="measurement",
+                                contextual_field_reference=(
+                                    ContextualFieldReference(
+                                        dataset_label="obs:source",
+                                        field_label="src:first",
+                                    )
+                                ),
+                            )
+                        ],
+                    )
+                ),
+            )
+        )
+        container.add(
+            ObservableProperty(
+                id="prop:second",
+                short_name="duplicate_label",
+                value_type="string",
+                calculation_design=CalculationDesign(
+                    calculation_implementation=CalculationImplementation(
+                        function_name="fn",
+                        function_kwargs=[
+                            CalculationKeywordArgument(
+                                mapping_name="measurement",
+                                contextual_field_reference=(
+                                    ContextualFieldReference(
+                                        dataset_label="obs:source",
+                                        field_label="src:second",
+                                    )
+                                ),
+                            )
+                        ],
+                    )
+                ),
+            )
+        )
+        cache_view = CacheContainerView(container)
+        observation = cache_view.require("obs:derived", "Observation")
+
+        specs = adapter.extract_labeled_observable_property_specifications(
+            observation,
+            cache_view,
+            label_collision_strategy="prefix_source_dataset",
+            source_dataset_series=source,
+        )
+
+        assert set(specs) == {
+            "source_one__duplicate_label",
+            "source_two__duplicate_label",
+        }
+
+    def test_enrich_after_split_uses_renamed_schema_labels(self):
+        import polars as pl
+        from pypeh.adapters.enrichment.dataframe_adapter import (
+            DataFrameEnrichmentAdapter,
+        )
+
+        adapter = DataFrameEnrichmentAdapter()
+        source = DatasetSeries(label="source")
+        source_one = source.add_empty_dataset("source_one")
+        source_two = source.add_empty_dataset("source_two")
+        source_one.add_observation_to_index("obs:source")
+        source_two.add_observation_to_index("obs:source")
+
+        source_one.add_observable_property(
+            observable_property_id="id_prop",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="id",
+            is_primary_key=True,
+        )
+        source_one.add_observable_property(
+            observable_property_id="src:one",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="value",
+        )
+        source_two.add_observable_property(
+            observable_property_id="source_two_id",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="id",
+        )
+        source_two.add_observable_property(
+            observable_property_id="src:two",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="value",
+        )
+        source_two.schema.add_foreign_key_link(
+            element_label="id",
+            foreign_key_dataset_label="source_one",
+            foreign_key_element_label="id",
+        )
+        source._register_observable_property(
+            "id_prop", "obs:source", "source_one", "id"
+        )
+        source._register_observable_property(
+            "src:one", "obs:source", "source_one", "value"
+        )
+        source._register_observable_property(
+            "src:two", "obs:source", "source_two", "value"
+        )
+        source_one.data = pl.DataFrame({"id": ["a", "b"], "value": [1.0, 2.0]})
+        source_two.data = pl.DataFrame(
+            {"id": ["a", "b"], "value": [10.0, 20.0]}
+        )
+
+        split = adapter.split_by_observation(source)
+        assert split.context_lookup("obs:source", "src:two") == (
+            "obs:source",
+            "source_two__value",
+        )
+
+        container = CacheContainerFactory.new()
+        source_observation = Observation(
+            id="obs:source",
+            observation_design="design:source",
+        )
+        target_observation = Observation(
+            id="obs:derived",
+            observation_design="design:derived",
+        )
+        container.add(source_observation)
+        container.add(target_observation)
+        container.add(
+            ObservationDesign(
+                id="design:source",
+                observable_property_specifications=[
+                    ObservablePropertySpecification(
+                        observable_property="id_prop",
+                        specification_category=(
+                            ObservablePropertySpecificationCategory.identifying
+                        ),
+                    ),
+                    ObservablePropertySpecification(
+                        observable_property="src:one",
+                        specification_category=(
+                            ObservablePropertySpecificationCategory.optional
+                        ),
+                    ),
+                    ObservablePropertySpecification(
+                        observable_property="src:two",
+                        specification_category=(
+                            ObservablePropertySpecificationCategory.optional
+                        ),
+                    ),
+                ],
+            )
+        )
+        container.add(
+            ObservationDesign(
+                id="design:derived",
+                observable_property_specifications=[
+                    ObservablePropertySpecification(
+                        observable_property="id_prop",
+                        specification_category=(
+                            ObservablePropertySpecificationCategory.identifying
+                        ),
+                    ),
+                    ObservablePropertySpecification(
+                        observable_property="derived:result",
+                        specification_category=(
+                            ObservablePropertySpecificationCategory.derived
+                        ),
+                    ),
+                ],
+            )
+        )
+        container.add(
+            ObservableProperty(
+                id="id_prop",
+                short_name="id",
+                value_type="string",
+            )
+        )
+        container.add(
+            ObservableProperty(
+                id="src:one",
+                short_name="value",
+                value_type="float",
+            )
+        )
+        container.add(
+            ObservableProperty(
+                id="src:two",
+                short_name="value",
+                value_type="float",
+            )
+        )
+        container.add(
+            ObservableProperty(
+                id="derived:result",
+                short_name="result",
+                value_type="float",
+                calculation_design=CalculationDesign(
+                    calculation_implementation=CalculationImplementation(
+                        function_name=(
+                            "tests.core.interfaces.dataops.test_dataops.add_one"
+                        ),
+                        function_kwargs=[
+                            CalculationKeywordArgument(
+                                mapping_name="measurement",
+                                contextual_field_reference=(
+                                    ContextualFieldReference(
+                                        dataset_label="obs:source",
+                                        field_label="src:two",
+                                    )
+                                ),
+                            )
+                        ],
+                    )
+                ),
+            )
+        )
+
+        adapter.enrich(
+            source_dataset_series=split,
+            target_observations=[target_observation],
+            target_derived_from=[source_observation],
+            cache_view=CacheContainerView(container),
+        )
+
+        enriched = split.parts["obs:source"].data
+        assert enriched is not None
+        assert enriched["result"].to_list() == [11.0, 21.0]
 
     def test_extract_from_source_single_source_relabels(self):
         adapter = self.get_adapter()
@@ -1740,6 +2481,126 @@ class TestAggregation(abc.ABC):
         mean_birthlength = summary_data["mean_birthlength"].to_list()
         assert mean_birthlength[0] is None
         assert mean_birthlength[1] == pytest.approx((50 + 45 + 54) / 3)
+
+    def test_summarize_prefixes_colliding_target_labels(self):
+        import polars as pl
+
+        adapter = self.get_adapter()
+        source = DatasetSeries(label="source")
+        source_dataset = source.add_empty_dataset("source_dataset")
+        source_dataset.add_observation_to_index("obs:source")
+        source_dataset.add_observable_property(
+            observable_property_id="src:measure",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="measure",
+        )
+        source._register_observable_property(
+            "src:measure", "obs:source", "source_dataset", "measure"
+        )
+        source_dataset.data = pl.DataFrame({"measure": [1.0, 2.0, 3.0]})
+
+        container = CacheContainerFactory.new()
+        source_observation = Observation(
+            id="obs:source",
+            observation_design="design:source",
+        )
+        target_observation = Observation(
+            id="obs:summary",
+            ui_label="summary",
+            observation_design="design:summary",
+        )
+        container.add(source_observation)
+        container.add(target_observation)
+        container.add(
+            ObservationDesign(
+                id="design:source",
+                observable_property_specifications=[
+                    ObservablePropertySpecification(
+                        observable_property="src:measure",
+                        specification_category=(
+                            ObservablePropertySpecificationCategory.optional
+                        ),
+                    ),
+                ],
+            )
+        )
+        container.add(
+            ObservationDesign(
+                id="design:summary",
+                observable_property_specifications=[
+                    ObservablePropertySpecification(
+                        observable_property="target:count_one",
+                        specification_category=(
+                            ObservablePropertySpecificationCategory.derived
+                        ),
+                    ),
+                    ObservablePropertySpecification(
+                        observable_property="target:count_two",
+                        specification_category=(
+                            ObservablePropertySpecificationCategory.derived
+                        ),
+                    ),
+                ],
+            )
+        )
+        calculation_design = CalculationDesign(
+            calculation_implementation=CalculationImplementation(
+                function_name=(
+                    "pypeh.adapters.aggregation.polars_adapter.statistics."
+                    "statistics_count_n"
+                ),
+                function_kwargs=[
+                    CalculationKeywordArgument(
+                        contextual_field_reference=ContextualFieldReference(
+                            dataset_label="obs:source",
+                            field_label="src:measure",
+                        )
+                    )
+                ],
+            )
+        )
+        container.add(
+            ObservableProperty(
+                id="src:measure",
+                short_name="measure",
+                value_type="float",
+            )
+        )
+        container.add(
+            ObservableProperty(
+                id="target:count_one",
+                short_name="count",
+                ui_label="count",
+                value_type="integer",
+                calculation_design=calculation_design,
+            )
+        )
+        container.add(
+            ObservableProperty(
+                id="target:count_two",
+                short_name="count",
+                ui_label="count",
+                value_type="integer",
+                calculation_design=calculation_design,
+            )
+        )
+
+        result = adapter.summarize(
+            source_dataset_series=source,
+            target_observations=[target_observation],
+            target_derived_from=[source_observation],
+            cache_view=CacheContainerView(container),
+            target_label_collision_strategy="prefix_observable_property_id",
+        )
+
+        summary = result["summary"]
+        assert summary is not None
+        assert set(summary.get_element_labels()) == {
+            "count_one__count",
+            "count_two__count",
+        }
+        assert summary.data["count_one__count"].to_list() == [3]
+        assert summary.data["count_two__count"].to_list() == [3]
 
 
 @pytest.mark.dataframe

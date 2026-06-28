@@ -137,6 +137,11 @@ inspection or downstream spreadsheet workflows, not semantic persistence files.
 split_dataset_series_by_observation(
     source_dataset_series: DatasetSeries,
     new_dataset_series_label: str | None = None,
+    label_collision_strategy: Literal[
+        "error",
+        "prefix_observable_property_id",
+        "prefix_source_dataset",
+    ] = "prefix_source_dataset",
     adapter_label: str = "dataops",
 ) -> DatasetSeries
 ```
@@ -145,6 +150,12 @@ Return a new `DatasetSeries` whose datasets are organized by observation. The
 method delegates to the registered data-operations adapter. When
 `new_dataset_series_label` is omitted, the adapter derives a label from the
 source series label.
+
+`label_collision_strategy` controls output column labels when fields from
+multiple source datasets would share one label in the split observation
+dataset. `"prefix_source_dataset"` keeps existing behavior by prefixing
+collisions with the source dataset label, `"prefix_observable_property_id"`
+uses the observable-property ID tail, and `"error"` rejects the collision.
 
 ```python
 validate_tabular_dataset(
@@ -224,10 +235,23 @@ enrich(
     target_observations: list[Observation],
     target_derived_from: list[Observation],
     target_dataset_labels: list[str] | None = None,
+    target_label_collision_strategy: Literal[
+        "error",
+        "prefix_observable_property_id",
+        "prefix_source_dataset",
+    ] = "error",
 ) -> DatasetSeries
 ```
 
 Delegate enrichment to the registered enrichment adapter.
+
+`target_label_collision_strategy` controls duplicate labels among the target
+derived observable properties. `"error"` rejects duplicates,
+`"prefix_observable_property_id"` prefixes a unique observable-property ID
+tail, and `"prefix_source_dataset"` prefixes the source dataset that feeds the
+calculation. When the source was produced by
+`split_dataset_series_by_observation`, source provenance recorded during split
+is used.
 
 ```python
 aggregate(
@@ -235,10 +259,19 @@ aggregate(
     target_observations: list[Observation],
     target_derived_from: list[Observation],
     target_dataset_labels: list[str] | None = None,
+    target_label_collision_strategy: Literal[
+        "error",
+        "prefix_observable_property_id",
+        "prefix_source_dataset",
+    ] = "error",
 ) -> DatasetSeries
 ```
 
 Delegate summarization to the registered aggregation adapter.
+
+`target_label_collision_strategy` has the same meaning as on `enrich`.
+Aggregation also uses the resolved target schema label as the dataframe result
+alias, so resolved target labels stay aligned with computed columns.
 
 ## Namespace Methods
 
