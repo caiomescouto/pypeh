@@ -1,4 +1,5 @@
 import io
+from datetime import datetime
 
 import fsspec
 import linkml_runtime.loaders
@@ -220,6 +221,8 @@ class TestXlsIO:
                 {
                     "id_sample": ["sample_a"],
                     "chol": ["1.2"],
+                    "sample_date": ["2025-10-13 00:00:00"],
+                    "sample_datetime": ["2025-10-13 13:45:12"],
                 }
             )
 
@@ -228,7 +231,12 @@ class TestXlsIO:
         result = ExcelIOImpl().load_section(
             "unused.xlsx",
             section_name="SAMPLE",
-            data_schema={"id_sample": "string", "chol": "float"},
+            data_schema={
+                "id_sample": "string",
+                "chol": "float",
+                "sample_date": "date",
+                "sample_datetime": "datetime",
+            },
             cast_error_policy=cast_error_policy,
         )
 
@@ -239,6 +247,8 @@ class TestXlsIO:
             }
         }
         assert result.schema["chol"] == pl.Float64
+        assert result.schema["sample_date"] == pl.Date
+        assert result.schema["sample_datetime"] == pl.Datetime
 
     def test_typed_sheet_type_mismatch_is_loaded_as_null(self, tmp_path):
         source = tmp_path / "typed_mismatch.xlsx"
@@ -268,6 +278,250 @@ class TestXlsIO:
             "sample_c",
         ]
         assert result["chol"].to_list() == [1.2, None, 3.4]
+
+    def test_typed_sheet_date_accepts_midnight_datetime_strings(
+        self, tmp_path
+    ):
+        import polars as pl
+
+        source = tmp_path / "typed_dates.xlsx"
+        write_minimal_xlsx(
+            source,
+            sheet_name="SAMPLE",
+            headers=["id_sample", "onderzoeksdatum"],
+            rows=[
+                ["sample_a", "2025-10-13 00:00:00"],
+                ["sample_b", "2025-10-14 00:00:00"],
+                ["sample_c", "2025-10-15"],
+            ],
+        )
+
+        excel_io = ExcelIO()
+        result = excel_io.load_section(
+            source,
+            section_name="SAMPLE",
+            data_schema={"id_sample": "string", "onderzoeksdatum": "date"},
+            cast_error_policy="raise",
+        )
+
+        assert result.schema["onderzoeksdatum"] == pl.Date
+        assert [value.isoformat() for value in result["onderzoeksdatum"]] == [
+            "2025-10-13",
+            "2025-10-14",
+            "2025-10-15",
+        ]
+
+    def test_typed_sheet_datetime_accepts_datetime_strings(self, tmp_path):
+        import polars as pl
+
+        source = tmp_path / "typed_datetimes.xlsx"
+        write_minimal_xlsx(
+            source,
+            sheet_name="SAMPLE",
+            headers=["id_sample", "onderzoeksdatum"],
+            rows=[
+                ["sample_a", "2025-10-13 00:00:00"],
+                ["sample_b", "2025-10-14 13:45:12"],
+            ],
+        )
+
+        excel_io = ExcelIO()
+        result = excel_io.load_section(
+            source,
+            section_name="SAMPLE",
+            data_schema={
+                "id_sample": "string",
+                "onderzoeksdatum": "datetime",
+            },
+            cast_error_policy="raise",
+        )
+
+        assert result.schema["onderzoeksdatum"] == pl.Datetime
+        assert [
+            value.isoformat(sep=" ") for value in result["onderzoeksdatum"]
+        ] == [
+            "2025-10-13 00:00:00",
+            "2025-10-14 13:45:12",
+        ]
+
+    def test_typed_sheet_date_accepts_midnight_native_datetimes(
+        self, monkeypatch
+    ):
+        import polars as pl
+
+        from pypeh.adapters.persistence.dataframe import ExcelIOImpl
+
+        def fake_load(self, source, **options):
+            return pl.DataFrame(
+                {
+                    "id_sample": ["sample_a", "sample_b"],
+                    "onderzoeksdatum": [
+                        datetime(2025, 10, 13),
+                        datetime(2025, 10, 14),
+                    ],
+                }
+            )
+
+        monkeypatch.setattr(ExcelIOImpl, "_load", fake_load)
+
+        result = ExcelIOImpl().load_section(
+            "unused.xlsx",
+            section_name="SAMPLE",
+            data_schema={"id_sample": "string", "onderzoeksdatum": "date"},
+            cast_error_policy="raise",
+        )
+
+        assert result.schema["onderzoeksdatum"] == pl.Date
+        assert [value.isoformat() for value in result["onderzoeksdatum"]] == [
+            "2025-10-13",
+            "2025-10-14",
+        ]
+
+    def test_typed_sheet_date_rejects_non_midnight_datetime_strings(
+        self, tmp_path
+    ):
+        source = tmp_path / "typed_date_with_time.xlsx"
+        write_minimal_xlsx(
+            source,
+            sheet_name="SAMPLE",
+            headers=["id_sample", "onderzoeksdatum"],
+            rows=[
+                ["sample_a", "2025-10-13 00:00:00"],
+                ["sample_b", "2025-10-14 13:45:12"],
+            ],
+        )
+
+        excel_io = ExcelIO()
+        with pytest.raises(
+            TypeCastError,
+            match="would discard non-midnight time values",
+        ):
+            excel_io.load_section(
+                source,
+                section_name="SAMPLE",
+                data_schema={
+                    "id_sample": "string",
+                    "onderzoeksdatum": "date",
+                },
+                cast_error_policy="raise",
+            )
+
+    def test_typed_sheet_date_rejects_non_midnight_native_datetimes(
+        self, monkeypatch
+    ):
+        import polars as pl
+
+        from pypeh.adapters.persistence.dataframe import ExcelIOImpl
+
+        def fake_load(self, source, **options):
+            return pl.DataFrame(
+                {
+                    "id_sample": ["sample_a", "sample_b"],
+                    "onderzoeksdatum": [
+                        datetime(2025, 10, 13),
+                        datetime(2025, 10, 14, 13, 45, 12),
+                    ],
+                }
+            )
+
+        monkeypatch.setattr(ExcelIOImpl, "_load", fake_load)
+
+        with pytest.raises(
+            TypeCastError,
+            match="would discard non-midnight time values",
+        ):
+            ExcelIOImpl().load_section(
+                "unused.xlsx",
+                section_name="SAMPLE",
+                data_schema={
+                    "id_sample": "string",
+                    "onderzoeksdatum": "date",
+                },
+                cast_error_policy="raise",
+            )
+
+    def test_typed_sheet_date_rejects_numeric_values_when_requested(
+        self, monkeypatch
+    ):
+        import polars as pl
+
+        from pypeh.adapters.persistence.dataframe import ExcelIOImpl
+
+        def fake_load(self, source, **options):
+            return pl.DataFrame(
+                {
+                    "id_sample": ["sample_a"],
+                    "onderzoeksdatum": [45943],
+                }
+            )
+
+        monkeypatch.setattr(ExcelIOImpl, "_load", fake_load)
+
+        with pytest.raises(
+            TypeCastError,
+            match="conversion from `Int64` to `date` is not supported",
+        ):
+            ExcelIOImpl().load_section(
+                "unused.xlsx",
+                section_name="SAMPLE",
+                data_schema={
+                    "id_sample": "string",
+                    "onderzoeksdatum": "date",
+                },
+                cast_error_policy="raise",
+            )
+
+    def test_typed_sheet_date_loads_numeric_values_as_null(self, monkeypatch):
+        import polars as pl
+
+        from pypeh.adapters.persistence.dataframe import ExcelIOImpl
+
+        def fake_load(self, source, **options):
+            return pl.DataFrame(
+                {
+                    "id_sample": ["sample_a"],
+                    "onderzoeksdatum": [45943],
+                }
+            )
+
+        monkeypatch.setattr(ExcelIOImpl, "_load", fake_load)
+
+        result = ExcelIOImpl().load_section(
+            "unused.xlsx",
+            section_name="SAMPLE",
+            data_schema={"id_sample": "string", "onderzoeksdatum": "date"},
+            cast_error_policy="null",
+        )
+
+        assert result.schema["onderzoeksdatum"] == pl.Date
+        assert result["onderzoeksdatum"].to_list() == [None]
+
+    def test_typed_sheet_invalid_date_raises_when_requested(self, tmp_path):
+        source = tmp_path / "typed_invalid_date.xlsx"
+        write_minimal_xlsx(
+            source,
+            sheet_name="SAMPLE",
+            headers=["id_sample", "onderzoeksdatum"],
+            rows=[
+                ["sample_a", "2025-10-13 00:00:00"],
+                ["sample_b", "not-a-date"],
+            ],
+        )
+
+        excel_io = ExcelIO()
+        with pytest.raises(
+            TypeCastError,
+            match="Failed to cast Excel sheet 'SAMPLE'",
+        ):
+            excel_io.load_section(
+                source,
+                section_name="SAMPLE",
+                data_schema={
+                    "id_sample": "string",
+                    "onderzoeksdatum": "date",
+                },
+                cast_error_policy="raise",
+            )
 
     def test_typed_sheet_type_mismatch_raises_when_requested(self, tmp_path):
         source = tmp_path / "typed_mismatch.xlsx"
