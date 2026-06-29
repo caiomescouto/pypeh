@@ -52,6 +52,7 @@ JoinHow = Literal[
     "anti",
     "cross",
 ]
+OBSERVATION_ASSEMBLY_JOIN_HOW: JoinHow = "full"
 
 LabelCollisionStrategy = Literal[
     "error",
@@ -717,7 +718,19 @@ class DataOpsInterface(Generic[T_DataType]):
         raw_join_specs: list[JoinSpec],
         required_fields_by_dataset: dict[str, set[str]],
         field_label_mapping: dict[tuple[str, str], str],
+        *,
+        how: JoinHow,
     ) -> JoinPlan:
+        """
+        Build a JoinPlan after route-specific field relabeling.
+
+        `split_by_observation` and `extract_from_source` use this helper to
+        assemble observation-shaped data across peer source datasets. These
+        routes should preserve rows from every participating source dataset, so
+        their callers pass `how="full"`. Validation and enrichment build their
+        own plans with `how="left"` because they intentionally preserve the row
+        set of the dataset being validated or enriched.
+        """
         adjusted_join_specs = [
             JoinSpec(
                 left_elements=tuple(
@@ -745,7 +758,7 @@ class DataOpsInterface(Generic[T_DataType]):
             base_dataset_label=base_dataset_label,
             join_specs=adjusted_join_specs,
             required_fields_by_dataset=adjusted_required_fields,
-            how="left",
+            how=how,
         )
 
     def _resolve_output_fields_by_observable_property(
@@ -979,6 +992,7 @@ class DataOpsInterface(Generic[T_DataType]):
                     raw_join_specs,
                     required_fields_by_dataset,
                     field_label_mapping,
+                    how=OBSERVATION_ASSEMBLY_JOIN_HOW,
                 )
                 joined_data = self.execute_join_plan(
                     base_data=base_data,
@@ -1095,6 +1109,7 @@ class DataOpsInterface(Generic[T_DataType]):
                     raw_join_specs,
                     required_fields_by_dataset,
                     field_label_mapping,
+                    how=OBSERVATION_ASSEMBLY_JOIN_HOW,
                 )
                 joined_data = self.execute_join_plan(
                     base_data=base_data,

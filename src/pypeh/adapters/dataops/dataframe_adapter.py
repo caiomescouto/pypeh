@@ -150,6 +150,7 @@ class DataFrameAdapter(DataOpsInterface[pl.DataFrame]):
                     left_on=list(left_on),
                     right_on=list(right_on),
                     how=join_plan.how,
+                    coalesce=join_plan.how == "full",
                 )
             else:
                 if isinstance(other_dataset, pl.LazyFrame):
@@ -163,6 +164,7 @@ class DataFrameAdapter(DataOpsInterface[pl.DataFrame]):
                     left_on=list(left_on),
                     right_on=list(right_on),
                     how=join_plan.how,
+                    coalesce=join_plan.how == "full",
                 )
 
         return joined
