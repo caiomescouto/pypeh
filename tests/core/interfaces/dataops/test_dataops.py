@@ -1049,6 +1049,87 @@ class TestDatasetSeriesMods(abc.ABC):
         }
         self.verify_join_and_single_dataset(split_series, adapter)
 
+    def test_split_by_observation_preserves_right_only_rows(self):
+        import polars as pl
+
+        adapter = self.get_adapter()
+        dataset_series = DatasetSeries(label="outer_split_case")
+
+        left_dataset = dataset_series.add_empty_dataset("left")
+        right_dataset = dataset_series.add_empty_dataset("right")
+        left_dataset.add_observation_to_index("obs:1")
+        right_dataset.add_observation_to_index("obs:1")
+
+        left_dataset.add_observable_property(
+            observable_property_id="shared_id_prop",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="id",
+            is_primary_key=True,
+        )
+        left_dataset.add_observable_property(
+            observable_property_id="obs1_left_prop",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="left_measure",
+        )
+        right_dataset.add_observable_property(
+            observable_property_id="right_fk_prop",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="left_id",
+        )
+        right_dataset.add_observable_property(
+            observable_property_id="obs1_right_prop",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="right_measure",
+        )
+        right_dataset.schema.add_foreign_key_link(
+            element_label="left_id",
+            foreign_key_dataset_label="left",
+            foreign_key_element_label="id",
+        )
+        dataset_series._register_observable_property(
+            "shared_id_prop", "obs:1", "left", "id"
+        )
+        dataset_series._register_observable_property(
+            "obs1_left_prop", "obs:1", "left", "left_measure"
+        )
+        dataset_series._register_observable_property(
+            "obs1_right_prop", "obs:1", "right", "right_measure"
+        )
+
+        left_data, right_data = self.mixed_join_and_single_dataset_data()
+        left_dataset.data = adapter.subset(
+            left_data, element_group=["id", "left_measure"]
+        )
+        right_dataset.data = right_data.vstack(
+            pl.DataFrame({"left_id": ["003"], "right_measure": [300.0]})
+        )
+
+        split_series = adapter.split_by_observation(dataset_series)
+
+        obs1_data = split_series.parts["obs:1"].data
+        assert obs1_data is not None
+        id_label = split_series.context_lookup("obs:1", "shared_id_prop")[1]
+        left_label = split_series.context_lookup("obs:1", "obs1_left_prop")[1]
+        right_label = split_series.context_lookup("obs:1", "obs1_right_prop")[
+            1
+        ]
+        sorted_obs1_data = obs1_data.sort(id_label)
+        assert sorted_obs1_data.get_column(id_label).to_list() == [
+            "001",
+            "002",
+            "003",
+        ]
+        assert sorted_obs1_data.get_column(left_label).to_list() == [
+            10.0,
+            20.0,
+            None,
+        ]
+        assert sorted_obs1_data.get_column(right_label).to_list() == [
+            100.0,
+            200.0,
+            300.0,
+        ]
+
     def test_split_by_observation_prefixes_colliding_fields(self):
         adapter = self.get_adapter()
         dataset_series = DatasetSeries(label="prefix_split_case")
@@ -2005,6 +2086,94 @@ class TestDatasetSeriesMods(abc.ABC):
         right_values = export_dataset.data.get_column("right_value").to_list()
         assert left_values == [10.0, 20.0]
         assert right_values == [100.0, 200.0]
+
+    def test_extract_from_source_preserves_right_only_rows(self):
+        import polars as pl
+
+        adapter = self.get_adapter()
+
+        source = DatasetSeries(label="extract_outer_join_source")
+        left_dataset = source.add_empty_dataset("left")
+        right_dataset = source.add_empty_dataset("right")
+        left_dataset.add_observation_to_index("obs:joined")
+        right_dataset.add_observation_to_index("obs:joined")
+
+        left_dataset.add_observable_property(
+            observable_property_id="prop_id",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="id",
+            is_primary_key=True,
+        )
+        left_dataset.add_observable_property(
+            observable_property_id="prop_left_value",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="left_measure",
+        )
+        right_dataset.add_observable_property(
+            observable_property_id="prop_fk_id",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="left_id",
+        )
+        right_dataset.add_observable_property(
+            observable_property_id="prop_right_value",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="right_measure",
+        )
+        right_dataset.schema.add_foreign_key_link(
+            element_label="left_id",
+            foreign_key_dataset_label="left",
+            foreign_key_element_label="id",
+        )
+        source._register_observable_property(
+            "prop_left_value", "obs:joined", "left", "left_measure"
+        )
+        source._register_observable_property(
+            "prop_right_value", "obs:joined", "right", "right_measure"
+        )
+
+        left_data, right_data = self.mixed_join_and_single_dataset_data()
+        left_dataset.data = adapter.subset(
+            left_data, element_group=["id", "left_measure"]
+        )
+        right_dataset.data = right_data.vstack(
+            pl.DataFrame({"left_id": ["003"], "right_measure": [300.0]})
+        )
+
+        target = DatasetSeries(label="extract_outer_join_target")
+        target_dataset = target.add_empty_dataset("export")
+        target_dataset.add_observation_to_index("obs:joined")
+        target_dataset.add_observable_property(
+            observable_property_id="prop_left_value",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="left_value",
+        )
+        target_dataset.add_observable_property(
+            observable_property_id="prop_right_value",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="right_value",
+        )
+        target._register_observable_property(
+            "prop_left_value", "obs:joined", "export", "left_value"
+        )
+        target._register_observable_property(
+            "prop_right_value", "obs:joined", "export", "right_value"
+        )
+
+        result = adapter.extract_from_source(source=source, target=target)
+
+        export_dataset = result.parts["export"]
+        assert export_dataset.data is not None
+        sorted_export_data = export_dataset.data.sort("right_value")
+        assert sorted_export_data.get_column("left_value").to_list() == [
+            10.0,
+            20.0,
+            None,
+        ]
+        assert sorted_export_data.get_column("right_value").to_list() == [
+            100.0,
+            200.0,
+            300.0,
+        ]
 
     def test_extract_from_source_collision_raises(self):
         adapter = self.get_adapter()
