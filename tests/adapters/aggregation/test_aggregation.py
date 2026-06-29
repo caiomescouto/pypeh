@@ -239,6 +239,51 @@ class TestSummarizeMethod:
         assert "p75" in result.columns
         assert result.shape[0] == 2
 
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "p5",
+            "p10",
+            "p25",
+            "p50",
+            "p75",
+            "p90",
+            "p95",
+            "p5_ci_lower",
+            "p5_ci_upper",
+            "p10_ci_lower",
+            "p10_ci_upper",
+            "p25_ci_lower",
+            "p25_ci_upper",
+            "p50_ci_lower",
+            "p50_ci_upper",
+            "p75_ci_lower",
+            "p75_ci_upper",
+            "p90_ci_lower",
+            "p90_ci_upper",
+            "p95_ci_lower",
+            "p95_ci_upper",
+        ],
+    )
+    def test_summarize_percentile_unit_stats_use_result_alias(
+        self, setup_adapter, sample_dataframe, name
+    ):
+        """Test percentile unit stats use aggregate-provided aliases."""
+        adapter = setup_adapter()
+        target_alias = f"target_{name}"
+
+        result = adapter.calculate_for_strata(
+            df=sample_dataframe.lazy(),
+            stratifications=[["group_a"]],
+            value_col="measurement",
+            stat_builders=[f"statistics_percentiles_{name}"],
+            result_aliases=[target_alias],
+        )
+
+        assert target_alias in result.columns
+        assert name not in result.columns
+        assert result.shape[0] == 2
+
     def test_summarize_empty_stratifications(
         self, setup_adapter, sample_dataframe, pl
     ):
