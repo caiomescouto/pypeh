@@ -1201,6 +1201,91 @@ class TestDatasetSeriesMods(abc.ABC):
             "right__measure",
         )
 
+    def test_split_by_observation_does_not_prefix_join_keys(self):
+        adapter = self.get_adapter()
+        dataset_series = DatasetSeries(label="join_key_collision_case")
+
+        left_dataset = dataset_series.add_empty_dataset("left")
+        right_dataset = dataset_series.add_empty_dataset("right")
+        left_dataset.add_observation_to_index("obs:1")
+        right_dataset.add_observation_to_index("obs:1")
+
+        left_dataset.add_observable_property(
+            observable_property_id="id_prop",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="id",
+            is_primary_key=True,
+        )
+        left_dataset.add_observable_property(
+            observable_property_id="left_prop",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="left_measure",
+        )
+        right_dataset.add_observable_property(
+            observable_property_id="right_id_prop",
+            data_type=ObservablePropertyValueType.STRING,
+            element_label="id",
+        )
+        right_dataset.add_observable_property(
+            observable_property_id="right_prop",
+            data_type=ObservablePropertyValueType.FLOAT,
+            element_label="right_measure",
+        )
+        right_dataset.schema.add_foreign_key_link(
+            element_label="id",
+            foreign_key_dataset_label="left",
+            foreign_key_element_label="id",
+        )
+        dataset_series._register_observable_property(
+            "id_prop", "obs:1", "left", "id"
+        )
+        dataset_series._register_observable_property(
+            "right_id_prop", "obs:1", "right", "id"
+        )
+        dataset_series._register_observable_property(
+            "left_prop", "obs:1", "left", "left_measure"
+        )
+        dataset_series._register_observable_property(
+            "right_prop", "obs:1", "right", "right_measure"
+        )
+
+        left_data, right_data = self.mixed_join_and_single_dataset_data()
+        left_dataset.data = adapter.subset(
+            left_data, element_group=["id", "left_measure"]
+        )
+        right_dataset.data = adapter.relabel(
+            adapter.subset(
+                right_data, element_group=["left_id", "right_measure"]
+            ),
+            {"left_id": "id"},
+        )
+
+        split_series = adapter.split_by_observation(
+            dataset_series,
+            label_collision_strategy="error",
+        )
+        split_dataset = split_series["obs:1"]
+
+        assert split_dataset is not None
+        assert set(split_dataset.get_element_labels()) == {
+            "id",
+            "left_measure",
+            "right_measure",
+        }
+        assert set(adapter.get_element_labels(split_dataset.data)) == {
+            "id",
+            "left_measure",
+            "right_measure",
+        }
+        assert split_series.context_lookup("obs:1", "id_prop") == (
+            "obs:1",
+            "id",
+        )
+        assert split_series.context_lookup("obs:1", "right_id_prop") == (
+            "obs:1",
+            "id",
+        )
+
     def test_split_by_observation_prefixes_observable_property_id(self):
         adapter = self.get_adapter()
         dataset_series = DatasetSeries(label="observable_prefix_split_case")
