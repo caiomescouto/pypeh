@@ -772,6 +772,10 @@ class Session(Generic[T_AdapterType, T_DataType]):
         target_label_collision_strategy: LabelCollisionStrategy = "error",
         adapter_label: str = "enrichment",
     ) -> DatasetSeries:
+        """
+        target_label_collision_strategy is used for the eventuality of having two new observable properties
+        that are labeled with the same short_name and ui_label.
+        """
         num_targets = len(target_observations)
         assert num_targets == len(target_derived_from)
         if target_dataset_labels is not None:

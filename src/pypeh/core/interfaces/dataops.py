@@ -62,6 +62,17 @@ LabelCollisionStrategy = Literal[
 
 
 @dataclass(frozen=True)
+class SourceFieldRef:
+    dataset_label: str
+    element_label: str
+
+    @classmethod
+    def from_tuple(cls, ref: tuple[str, str]) -> "SourceFieldRef":
+        dataset_label, element_label = ref
+        return cls(dataset_label=dataset_label, element_label=element_label)
+
+
+@dataclass(frozen=True)
 class JoinEdge:
     left_dataset: str
     left_elements: tuple[str, ...]
@@ -553,8 +564,8 @@ class DataOpsInterface(Generic[T_DataType]):
         dataset_series: DatasetSeries[T_DataType],
         observation_id: str,
         source_dataset_labels: list[str],
-    ) -> dict[str, tuple[str, str]]:
-        observable_property_context: dict[str, tuple[str, str]] = {}
+    ) -> dict[str, SourceFieldRef]:
+        observable_property_context: dict[str, SourceFieldRef] = {}
         for (
             context_observation_id,
             observable_property_id,
@@ -565,8 +576,10 @@ class DataOpsInterface(Generic[T_DataType]):
             if source_label not in source_dataset_labels:
                 continue
             observable_property_context[observable_property_id] = (
-                source_label,
-                element_label,
+                SourceFieldRef(
+                    dataset_label=source_label,
+                    element_label=element_label,
+                )
             )
         if len(observable_property_context) == 0:
             raise ValueError(
@@ -577,14 +590,13 @@ class DataOpsInterface(Generic[T_DataType]):
 
     @staticmethod
     def _collect_required_fields_by_dataset(
-        observable_property_context: dict[str, tuple[str, str]],
+        observable_property_context: dict[str, SourceFieldRef],
     ) -> dict[str, set[str]]:
         required_fields_by_dataset: dict[str, set[str]] = defaultdict(set)
-        for (
-            source_label,
-            element_label,
-        ) in observable_property_context.values():
-            required_fields_by_dataset[source_label].add(element_label)
+        for source_ref in observable_property_context.values():
+            required_fields_by_dataset[source_ref.dataset_label].add(
+                source_ref.element_label
+            )
         return required_fields_by_dataset
 
     @staticmethod
@@ -610,9 +622,9 @@ class DataOpsInterface(Generic[T_DataType]):
         source_dataset_labels: list[str],
         base_dataset_label: str,
         required_fields_by_dataset: dict[str, set[str]],
-    ) -> tuple[list[JoinSpec], dict[tuple[str, str], tuple[str, str]]]:
+    ) -> tuple[list[JoinSpec], dict[SourceFieldRef, SourceFieldRef]]:
         raw_join_specs: list[JoinSpec] = []
-        right_to_left_join_key: dict[tuple[str, str], tuple[str, str]] = {}
+        right_to_left_join_key: dict[SourceFieldRef, SourceFieldRef] = {}
 
         for source_label in source_dataset_labels:
             if source_label == base_dataset_label:
@@ -637,8 +649,8 @@ class DataOpsInterface(Generic[T_DataType]):
                 join_spec.left_elements, join_spec.right_elements
             ):
                 right_to_left_join_key[
-                    (join_spec.right_dataset, right_element)
-                ] = (join_spec.left_dataset, left_element)
+                    SourceFieldRef(join_spec.right_dataset, right_element)
+                ] = SourceFieldRef(join_spec.left_dataset, left_element)
 
         return raw_join_specs, right_to_left_join_key
 
@@ -649,27 +661,58 @@ class DataOpsInterface(Generic[T_DataType]):
         label_collision_strategy: LabelCollisionStrategy = (
             "prefix_source_dataset"
         ),
-        observable_property_by_source_field: dict[tuple[str, str], str]
+        observable_property_by_source_field: dict[SourceFieldRef, str]
         | None = None,
-    ) -> dict[tuple[str, str], str]:
+        join_key_aliases: dict[SourceFieldRef, SourceFieldRef] | None = None,
+    ) -> dict[SourceFieldRef, str]:
         used_output_labels: set[str] = set()
-        field_label_mapping: dict[tuple[str, str], str] = {}
-
-        for source_label in source_dataset_labels:
+        field_label_mapping: dict[SourceFieldRef, str] = {}
+        join_key_aliases = join_key_aliases or {}
+        canonical_join_keys = set(join_key_aliases.values())
+        all_source_fields = [
+            SourceFieldRef(
+                dataset_label=source_label,
+                element_label=field_label,
+            )
+            for source_label in source_dataset_labels
             for field_label in sorted(
                 required_fields_by_dataset.get(source_label, set())
+            )
+        ]
+
+        def assign_unique_label(source_field: SourceFieldRef) -> None:
+            unique_label = self._build_unique_label(
+                source_field.element_label,
+                used_output_labels,
+                dataset_label=source_field.dataset_label,
+                observable_property_id=(
+                    observable_property_by_source_field or {}
+                ).get(source_field),
+                label_collision_strategy=label_collision_strategy,
+            )
+            used_output_labels.add(unique_label)
+            field_label_mapping[source_field] = unique_label
+
+        for source_field in all_source_fields:
+            if source_field in canonical_join_keys:
+                assign_unique_label(source_field)
+
+        for source_field in all_source_fields:
+            if (
+                source_field in canonical_join_keys
+                or source_field in join_key_aliases
             ):
-                unique_label = self._build_unique_label(
-                    field_label,
-                    used_output_labels,
-                    dataset_label=source_label,
-                    observable_property_id=(
-                        observable_property_by_source_field or {}
-                    ).get((source_label, field_label)),
-                    label_collision_strategy=label_collision_strategy,
-                )
-                used_output_labels.add(unique_label)
-                field_label_mapping[(source_label, field_label)] = unique_label
+                continue
+            assign_unique_label(source_field)
+
+        for source_field, canonical_source_field in join_key_aliases.items():
+            if source_field not in all_source_fields:
+                continue
+            canonical_label = field_label_mapping.get(canonical_source_field)
+            if canonical_label is None:
+                assign_unique_label(canonical_source_field)
+                canonical_label = field_label_mapping[canonical_source_field]
+            field_label_mapping[source_field] = canonical_label
 
         return field_label_mapping
 
@@ -679,7 +722,7 @@ class DataOpsInterface(Generic[T_DataType]):
         observation_id: str,
         source_dataset_labels: list[str],
         required_fields_by_dataset: dict[str, set[str]],
-        field_label_mapping: dict[tuple[str, str], str],
+        field_label_mapping: dict[SourceFieldRef, str],
     ) -> dict[str, T_DataType]:
         datasets_for_join: dict[str, T_DataType] = {}
 
@@ -700,9 +743,13 @@ class DataOpsInterface(Generic[T_DataType]):
                 source_data, element_group=selected_fields
             )
             relabel_mapping = {
-                field_label: field_label_mapping[(source_label, field_label)]
+                field_label: field_label_mapping[
+                    SourceFieldRef(source_label, field_label)
+                ]
                 for field_label in selected_fields
-                if field_label_mapping[(source_label, field_label)]
+                if field_label_mapping[
+                    SourceFieldRef(source_label, field_label)
+                ]
                 != field_label
             }
             if len(relabel_mapping) > 0:
@@ -717,7 +764,7 @@ class DataOpsInterface(Generic[T_DataType]):
         source_dataset_labels: list[str],
         raw_join_specs: list[JoinSpec],
         required_fields_by_dataset: dict[str, set[str]],
-        field_label_mapping: dict[tuple[str, str], str],
+        field_label_mapping: dict[SourceFieldRef, str],
         *,
         how: JoinHow,
     ) -> JoinPlan:
@@ -734,12 +781,12 @@ class DataOpsInterface(Generic[T_DataType]):
         adjusted_join_specs = [
             JoinSpec(
                 left_elements=tuple(
-                    field_label_mapping[(js.left_dataset, el)]
+                    field_label_mapping[SourceFieldRef(js.left_dataset, el)]
                     for el in js.left_elements
                 ),
                 left_dataset=js.left_dataset,
                 right_elements=tuple(
-                    field_label_mapping[(js.right_dataset, el)]
+                    field_label_mapping[SourceFieldRef(js.right_dataset, el)]
                     for el in js.right_elements
                 ),
                 right_dataset=js.right_dataset,
@@ -749,7 +796,7 @@ class DataOpsInterface(Generic[T_DataType]):
         adjusted_required_fields: dict[str, set[str]] = defaultdict(set)
         for source_label in source_dataset_labels:
             adjusted_required_fields[source_label].update(
-                field_label_mapping[(source_label, field_label)]
+                field_label_mapping[SourceFieldRef(source_label, field_label)]
                 for field_label in required_fields_by_dataset.get(
                     source_label, set()
                 )
@@ -761,35 +808,44 @@ class DataOpsInterface(Generic[T_DataType]):
             how=how,
         )
 
+    @staticmethod
+    def _canonical_source_field(
+        source_field: SourceFieldRef,
+        join_key_aliases: dict[SourceFieldRef, SourceFieldRef],
+    ) -> SourceFieldRef:
+        return join_key_aliases.get(source_field, source_field)
+
     def _resolve_output_fields_by_observable_property(
         self,
         observation_id: str,
-        observable_property_context: dict[str, tuple[str, str]],
-        right_to_left_join_key: dict[tuple[str, str], tuple[str, str]],
-        field_label_mapping: dict[tuple[str, str], str],
+        observable_property_context: dict[str, SourceFieldRef],
+        right_to_left_join_key: dict[SourceFieldRef, SourceFieldRef],
+        field_label_mapping: dict[SourceFieldRef, str],
     ) -> dict[str, str]:
         final_fields_by_observable_property: dict[str, str] = {}
-        for observable_property_id, (
-            source_label,
-            field_label,
+        canonical_source_by_field: dict[str, SourceFieldRef] = {}
+
+        for (
+            observable_property_id,
+            source_field,
         ) in observable_property_context.items():
-            join_key_pair = right_to_left_join_key.get(
-                (source_label, field_label), None
+            canonical_source = self._canonical_source_field(
+                source_field, right_to_left_join_key
             )
-            if join_key_pair is not None:
-                mapped_source = join_key_pair
-            else:
-                mapped_source = (source_label, field_label)
+            final_field = field_label_mapping[canonical_source]
+            existing_source = canonical_source_by_field.get(final_field)
+            if (
+                existing_source is not None
+                and existing_source != canonical_source
+            ):
+                raise ValueError(
+                    f"Observation '{observation_id}' resolves multiple "
+                    "unrelated observable properties to the same output field "
+                    "after join normalization. This is currently unsupported."
+                )
+            canonical_source_by_field[final_field] = canonical_source
             final_fields_by_observable_property[observable_property_id] = (
-                field_label_mapping[mapped_source]
-            )
-        if len(set(final_fields_by_observable_property.values())) != len(
-            final_fields_by_observable_property
-        ):
-            raise ValueError(
-                f"Observation '{observation_id}' resolves multiple "
-                "observable properties to the same output field after "
-                "join normalization. This is currently unsupported."
+                final_field
             )
         return final_fields_by_observable_property
 
@@ -800,7 +856,7 @@ class DataOpsInterface(Generic[T_DataType]):
         observation_id: str,
         source_dataset_labels: list[str],
         target_dataset_label: str,
-        observable_property_context: dict[str, tuple[str, str]],
+        observable_property_context: dict[str, SourceFieldRef],
         final_fields_by_observable_property: dict[str, str],
         final_data: T_DataType,
     ) -> None:
@@ -821,9 +877,9 @@ class DataOpsInterface(Generic[T_DataType]):
             observable_property_id,
             final_field_label,
         ) in final_fields_by_observable_property.items():
-            source_label, source_field_label = observable_property_context[
-                observable_property_id
-            ]
+            source_field = observable_property_context[observable_property_id]
+            source_label = source_field.dataset_label
+            source_field_label = source_field.element_label
             source_dataset = source_series[source_label]
             assert source_dataset is not None
             source_schema_element = source_dataset.get_schema_element_by_label(
@@ -837,11 +893,24 @@ class DataOpsInterface(Generic[T_DataType]):
             is_primary_key = (
                 source_field_label in source_dataset.schema.primary_keys
             )
-            output_dataset.add_observable_property(
+            if (
+                output_dataset.get_schema_element_by_label(final_field_label)
+                is None
+            ):
+                output_dataset.add_observable_property(
+                    observable_property_id=observable_property_id,
+                    data_type=source_schema_element.data_type,
+                    element_label=final_field_label,
+                    is_primary_key=is_primary_key,
+                )
+            elif is_primary_key:
+                assert output_dataset.schema is not None
+                output_dataset.schema.primary_keys.add(final_field_label)
+            target_series._register_observable_property(
                 observable_property_id=observable_property_id,
-                data_type=source_schema_element.data_type,
+                observation_id=observation_id,
+                dataset_label=target_dataset_label,
                 element_label=final_field_label,
-                is_primary_key=is_primary_key,
             )
             output_source_fields[observable_property_id] = {
                 "dataset_label": source_label,
@@ -909,7 +978,7 @@ class DataOpsInterface(Generic[T_DataType]):
         in the source.
         """
         for target_dataset_label in target.parts:
-            target_label_for: dict[tuple[str, str], str] = {}
+            target_label_for: dict[SourceFieldRef, str] = {}
             for (
                 observation_id,
                 observable_property_id,
@@ -920,23 +989,26 @@ class DataOpsInterface(Generic[T_DataType]):
                 source_ref = source.context_lookup(
                     observation_id, observable_property_id
                 )
-                existing = target_label_for.get(source_ref)
+                source_field = SourceFieldRef.from_tuple(source_ref)
+                existing = target_label_for.get(source_field)
                 if existing is not None and existing != target_element_label:
-                    src_label, src_field = source_ref
                     raise ValueError(
                         f"Multiple target outputs in dataset "
                         f"{target_dataset_label!r} resolve to the same source "
-                        f"field ({src_label!r}, {src_field!r}): "
+                        f"field ({source_field.dataset_label!r}, "
+                        f"{source_field.element_label!r}): "
                         f"{existing!r} and {target_element_label!r}."
                     )
-                target_label_for[source_ref] = target_element_label
+                target_label_for[source_field] = target_element_label
 
             if len(target_label_for) == 0:
                 continue
 
             required_fields_by_dataset: dict[str, set[str]] = defaultdict(set)
-            for src_label, src_field in target_label_for:
-                required_fields_by_dataset[src_label].add(src_field)
+            for source_field in target_label_for:
+                required_fields_by_dataset[source_field.dataset_label].add(
+                    source_field.element_label
+                )
             source_dataset_labels = sorted(required_fields_by_dataset.keys())
 
             sentinel_observation_id = (
@@ -953,19 +1025,19 @@ class DataOpsInterface(Generic[T_DataType]):
                 required_fields_by_dataset,
             )
 
-            field_label_mapping: dict[tuple[str, str], str] = {}
+            field_label_mapping: dict[SourceFieldRef, str] = {}
             used_output_labels: set[str] = set(target_label_for.values())
             for source_label in source_dataset_labels:
                 for field_label in sorted(
                     required_fields_by_dataset.get(source_label, set())
                 ):
-                    target_label = target_label_for.get(
-                        (source_label, field_label)
+                    source_field = SourceFieldRef(
+                        dataset_label=source_label,
+                        element_label=field_label,
                     )
+                    target_label = target_label_for.get(source_field)
                     if target_label is not None:
-                        field_label_mapping[(source_label, field_label)] = (
-                            target_label
-                        )
+                        field_label_mapping[source_field] = target_label
                     else:
                         unique = self._build_unique_label(
                             field_label,
@@ -973,9 +1045,7 @@ class DataOpsInterface(Generic[T_DataType]):
                             dataset_label=source_label,
                         )
                         used_output_labels.add(unique)
-                        field_label_mapping[(source_label, field_label)] = (
-                            unique
-                        )
+                        field_label_mapping[source_field] = unique
 
             datasets_for_join = self._prepare_datasets_for_join(
                 source,
@@ -1091,6 +1161,7 @@ class DataOpsInterface(Generic[T_DataType]):
                 observable_property_by_source_field=(
                     observable_property_by_source_field
                 ),
+                join_key_aliases=right_to_left_join_key,
             )
 
             datasets_for_join = self._prepare_datasets_for_join(
@@ -1128,12 +1199,9 @@ class DataOpsInterface(Generic[T_DataType]):
                 )
             )
 
-            final_fields = [
-                final_fields_by_observable_property[observable_property_id]
-                for observable_property_id in sorted(
-                    final_fields_by_observable_property
-                )
-            ]
+            final_fields = sorted(
+                set(final_fields_by_observable_property.values())
+            )
             final_data = self.subset(joined_data, element_group=final_fields)
 
             target_dataset_label = (
