@@ -167,8 +167,6 @@ def test_parc_aligned_study_dataops_roundtrip(
             AGGREGATION_OBSERVATION_GROUP_ID
         )
     )
-    print(target_observations)
-    print(source_observations)
     aggregated_dataset_series = session.aggregate(
         source_dataset_series=enriched_dataset_series,
         target_observations=list(target_observations),

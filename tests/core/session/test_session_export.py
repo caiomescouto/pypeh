@@ -207,6 +207,46 @@ class TestSessionExport:
             "cholesterol_mg_dl",
         )
 
+    def test_reading_two_exported_dataset_series_together_raises(
+        self, export_session, source_dataset_series
+    ):
+        data_export_config = _populate_export_cache(export_session)
+
+        first_export = export_session.export_tabular_dataset_series(
+            source_dataset_series=source_dataset_series,
+            data_export_config=data_export_config,
+        )
+        second_export = export_session.export_tabular_dataset_series(
+            source_dataset_series=source_dataset_series,
+            data_export_config=data_export_config,
+        )
+
+        assert first_export.label == second_export.label
+        assert first_export.identifier != second_export.identifier
+
+        first_paths = export_session.dump_tabular_dataset_series(
+            dataset_series=first_export,
+            output_path="first_export",
+            file_format="parquet",
+            connection_label="local_file",
+        )
+        second_paths = export_session.dump_tabular_dataset_series(
+            dataset_series=second_export,
+            output_path="second_export",
+            file_format="parquet",
+            connection_label="local_file",
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="Parquet files do not belong to the same DatasetSeries",
+        ):
+            export_session.read_tabular_dataset_series(
+                [*first_paths, *second_paths],
+                file_format="parquet",
+                connection_label="local_file",
+            )
+
 
 @pytest.mark.xlsx
 class TestSessionExportXlsx:
