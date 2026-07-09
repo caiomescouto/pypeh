@@ -51,6 +51,18 @@ class TestSessionResource:
 
 @pytest.mark.core
 class TestSessionDump:
+    @staticmethod
+    def _get_tmp_session(tmp_path) -> Session:
+        return Session(
+            connection_config=[
+                LocalFileConfig(
+                    label="local_file",
+                    config_dict={"root_folder": str(tmp_path)},
+                ),
+            ],
+            default_connection=None,
+        )
+
     def test_dump_entity_list(self, tmp_path):
         session = get_session()
         assert isinstance(session, Session)
@@ -86,6 +98,51 @@ class TestSessionDump:
         assert isinstance(test_data, dict)
         assert "derived_observations" in test_data
         assert len(test_data["derived_observations"]) == 3
+
+    def test_dumped_yaml_with_non_ascii_reads_back_as_utf8(self, tmp_path):
+        source_session = self._get_tmp_session(tmp_path)
+        source_session.cache.add(
+            ObservableProperty(
+                id="peh:unicode_property",
+                ui_label="caf\u00e9",
+                value_type="string",
+            )
+        )
+
+        destination = tmp_path / "unicode_cache.yaml"
+        source_session.dump_cache(
+            output_path=str(destination),
+            connection_label="local_file",
+        )
+
+        data = destination.read_bytes()
+        assert data.decode("utf-8")
+
+        loaded_session = self._get_tmp_session(tmp_path)
+        loaded_session.load_persisted_cache(
+            source="unicode_cache.yaml", connection_label="local_file"
+        )
+
+        loaded = loaded_session.cache.require(
+            "peh:unicode_property", "ObservableProperty"
+        )
+        assert isinstance(loaded, ObservableProperty)
+        assert loaded.ui_label == "caf\u00e9"
+
+    def test_loading_cp1252_yaml_raises_unicode_decode_error(self, tmp_path):
+        cp1252_yaml = (
+            b"observable_properties:\n"
+            b"  - id: peh:cp1252_property\n"
+            b"    ui_label: caf\xe9\n"
+            b"    value_type: string\n"
+        )
+        (tmp_path / "cp1252_cache.yaml").write_bytes(cp1252_yaml)
+
+        session = self._get_tmp_session(tmp_path)
+        with pytest.raises(UnicodeDecodeError, match="UTF-8 encoded"):
+            session.load_persisted_cache(
+                source="cp1252_cache.yaml", connection_label="local_file"
+            )
 
 
 @pytest.mark.core

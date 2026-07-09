@@ -71,6 +71,34 @@ class FileIO(PersistenceInterface):
         """
         return os.path.splitext(path)[1].lower().lstrip(".")
 
+    @staticmethod
+    def _encoding_kwargs(
+        adapter: serializations.IOAdapter, mode: str
+    ) -> dict[str, str]:
+        if "b" in mode:
+            return {}
+        if adapter.encoding is None:
+            return {}
+        return {"encoding": adapter.encoding}
+
+    @staticmethod
+    def _raise_decode_error(
+        error: UnicodeDecodeError, path: str, encoding: str | None
+    ) -> None:
+        expected_encoding = encoding or error.encoding
+        reason = (
+            f"{error.reason}; failed to decode {path!r} as "
+            f"{expected_encoding}. pypeh YAML/JSON resources are expected "
+            "to be UTF-8 encoded."
+        )
+        raise UnicodeDecodeError(
+            error.encoding,
+            error.object,
+            error.start,
+            error.end,
+            reason,
+        ) from error
+
     def load(
         self,
         path: str,
@@ -87,8 +115,14 @@ class FileIO(PersistenceInterface):
         adapter = serializations.IOAdapterFactory.create(format)
 
         try:
-            with self.file_system.open(path, adapter.read_mode) as f:
+            with self.file_system.open(
+                path,
+                adapter.read_mode,
+                **self._encoding_kwargs(adapter, adapter.read_mode),
+            ) as f:
                 return adapter.load(f, **kwargs)  # type: ignore[fsspec]
+        except UnicodeDecodeError as e:
+            self._raise_decode_error(e, path, adapter.encoding)
         except Exception:
             logger.exception(f"Failed to load file: {path}")
             raise
@@ -110,7 +144,11 @@ class FileIO(PersistenceInterface):
         adapter = serializations.IOAdapterFactory.create(format)
 
         try:
-            with self.file_system.open(destination, adapter.write_mode) as f:
+            with self.file_system.open(
+                destination,
+                adapter.write_mode,
+                **self._encoding_kwargs(adapter, adapter.write_mode),
+            ) as f:
                 adapter.dump(source, f, **kwargs)  # type: ignore[fsspec]
         except Exception:
             logger.exception(f"Failed to write file: {destination}")

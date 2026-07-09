@@ -88,6 +88,7 @@ def validate_pydantic(
 class IOAdapter(PersistenceInterface):
     read_mode: str = NotImplementedError  # type: ignore
     write_mode: str = NotImplementedError  # type: ignore
+    encoding: str | None = None
 
     """Adapter for loading from file."""
 
@@ -120,6 +121,7 @@ class IOAdapter(PersistenceInterface):
 class JsonIO(IOAdapter):
     read_mode: str = "r"
     write_mode: str = "w"
+    encoding: str | None = "utf-8"
     """
     Adapter for loading from json file/stream.
     Assuming jsonfiles can be directly loaded by linkml
@@ -210,13 +212,14 @@ class JsonIO(IOAdapter):
 
     def dump(self, destination: str, entity: BaseModel, **kwargs) -> None:
         # LinkML-based version JSONDumper().dump
-        with open(destination, self.write_mode) as f:
+        with open(destination, self.write_mode, encoding=self.encoding) as f:
             json.dump(entity.model_dump(), f, indent=2)
 
 
 class YamlIO(IOAdapter):
     read_mode: str = "r"
     write_mode: str = "w"
+    encoding: str | None = "utf-8"
     """
     Adapter for loading from Yaml file/stream
     Assuming yaml files can be directly loaded by linkml
