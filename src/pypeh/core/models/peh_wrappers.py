@@ -25,7 +25,7 @@ ENTITYLIST_MAPPING = {
     "ObservedValue": "observed_values",
     "DataLayout": "layouts",
     "DataImportConfig": "import_configs",
-    # "DataExportConfig": "export_configs", # TODO: remove this with peh-model 0.6.3 release
+    "DataExportConfig": "export_configs",
     "DataRequest": "data_requests",
 }
 
