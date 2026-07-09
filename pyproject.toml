@@ -25,7 +25,7 @@ dataframe-adapter = [
 ]
 s3-adapter = ["s3fs"]
 polars-adapter=["polars", "pyarrow", "fastexcel"]
-compehndly=["compehndly>=0.0.1a2"]
+compehndly=["compehndly>=0.0.1a4"]
 test-core = ["pytest>=8.2.0,<9"]
 test-dataframe=["numpy", "scipy>=1.15.3"]
 test-s3 = ["s3fs", "moto[s3,server]"]
@@ -47,7 +47,7 @@ test-rocrate = [
     "rocrate",
 ]
 test-s3 = ["s3fs", "moto[s3,server]"]
-test-compehndly = ["compehndly>=0.0.1a2"]
+test-compehndly = ["compehndly>=0.0.1a4"]
 docs = [
     "mkdocs>=1.6.0,<2",
 ]
