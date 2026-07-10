@@ -29,7 +29,7 @@ from pypeh.core.models.internal_data_layout import (
     JoinSpec,
 )
 from pypeh.core.models.typing import T_DataType
-from pypeh.core.models import graph, validation_dto
+from pypeh.core.models import extract_dto, graph, validation_dto
 from pypeh.core.utils.function_utils import _extract_callable
 
 if TYPE_CHECKING:
@@ -1648,6 +1648,121 @@ class ValidationInterface(DataOpsInterface, Generic[T_DataType]):
         ret = self._validate(to_validate, validation_config)
 
         return ret
+
+
+class DataExtractInterface(DataOpsInterface, Generic[T_DataType]):
+    @abstractmethod
+    def _filter(
+        self,
+        data: T_DataType,
+        config: extract_dto.FilterConfig,
+    ) -> T_DataType:
+        raise NotImplementedError(
+            "Abstract method on class DataExtractInterface."
+        )
+
+    @classmethod
+    def get_default_adapter_class(cls):
+        raise NotImplementedError(
+            "No default DataExtractInterface adapter is available. Register an "
+            "adapter explicitly via Session.register_adapter('extract', ...)."
+        )
+
+    def build_filter_config(
+        self,
+        observation_filter_expression: peh.ObservationFilterExpression | None,
+        dataset_label: str,
+        type_annotations: dict[str, dict[str, ObservablePropertyValueType]],
+        select: list[str] | None = None,
+        name: str | None = None,
+    ) -> extract_dto.FilterConfig:
+        filter_expression = extract_dto.FilterExpression.from_peh(
+            observation_filter_expression,
+            type_annotations=type_annotations,
+            dataset_label=dataset_label,
+        )
+        dependent_contextual_field_references = (
+            filter_expression.dependent_contextual_field_references or {}
+        )
+        return extract_dto.FilterConfig(
+            name=name or dataset_label,
+            filter_expression=filter_expression,
+            select=select,
+            dependent_contextual_field_references=dependent_contextual_field_references,
+        )
+
+    def extract(
+        self,
+        source_dataset_series: DatasetSeries[T_DataType],
+        target_dataset_series: DatasetSeries[T_DataType],
+        observation_filter_expression: peh.ObservationFilterExpression | None,
+        dataset_label: str,
+        type_annotations: dict[str, dict[str, ObservablePropertyValueType]],
+    ) -> DatasetSeries[T_DataType]:
+        reshaped = self.extract_from_source(
+            source_dataset_series, target_dataset_series
+        )
+        base_dataset = reshaped.parts[dataset_label]
+        assert base_dataset is not None
+        assert base_dataset.data is not None
+        to_filter = base_dataset.data
+
+        filter_config = self.build_filter_config(
+            observation_filter_expression=observation_filter_expression,
+            dataset_label=dataset_label,
+            type_annotations=type_annotations,
+        )
+
+        # check whether the filter references fields in other datasets and
+        # therefore requires a join (cross DataLayoutSection filtering)
+        dependent_contextual_field_references = (
+            filter_config.dependent_contextual_field_references
+        )
+        join_required = bool(dependent_contextual_field_references)
+
+        if join_required:
+            join_specs: list[JoinSpec] = []
+            required_fields_by_dataset: dict[str, set[str]] = defaultdict(set)
+            available_data: dict[str, T_DataType] = {}
+            for (
+                dependent_dataset_label,
+                dependent_field_labels,
+            ) in dependent_contextual_field_references.items():
+                other_dataset = reshaped.parts[dependent_dataset_label]
+                assert other_dataset is not None
+                other_data = other_dataset.data
+                assert other_data is not None
+                available_data[dependent_dataset_label] = other_data
+                join_spec = base_dataset.resolve_join(other_dataset)
+                if join_spec is None:
+                    me = (
+                        f"Cannot resolve explicit join path between "
+                        f"'{dataset_label}' and '{dependent_dataset_label}'. "
+                        "Add a `foreign_key_link` to the DataLayout elements."
+                    )
+                    logger.error(me)
+                    raise ValueError(me)
+                join_specs.append(join_spec)
+                required_fields_by_dataset[dependent_dataset_label].update(
+                    dependent_field_labels
+                )
+
+            join_plan = JoinPlan.from_join_specs(
+                base_dataset_label=dataset_label,
+                join_specs=join_specs,
+                required_fields_by_dataset=required_fields_by_dataset,
+                how="left",
+            )
+            to_filter = self.execute_join_plan(
+                base_data=to_filter,
+                datasets=available_data,
+                join_plan=join_plan,
+            )
+
+        filtered = self._filter(to_filter, filter_config)
+        reshaped.parts[dataset_label].data = filtered
+
+        return reshaped
 
 
 class DataEnrichmentInterface(DataOpsInterface, Generic[T_DataType]):

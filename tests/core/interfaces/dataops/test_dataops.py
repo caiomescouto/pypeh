@@ -13,6 +13,7 @@ from peh_model.peh import (
     DataLayout,
     Observation,
     ObservationDesign,
+    ObservationFilterExpression,
     DataImportConfig,
     ObservableProperty,
     ObservablePropertySpecification,
@@ -25,6 +26,7 @@ from pypeh.core.cache.containers import (
 )
 from pypeh.core.cache.utils import load_entities_from_tree
 from pypeh.core.interfaces.dataops import (
+    DataExtractInterface,
     DataOpsInterface,
     SOURCE_FIELDS_BY_OBSERVABLE_PROPERTY_METADATA_KEY,
     T_DataType,
@@ -49,6 +51,7 @@ from pypeh.core.models.validation_dto import (
     ColumnValidation,
     ValidationConfig,
 )
+from pypeh.core.models.extract_dto import FilterConfig
 from pypeh.core.models.graph import ExecutionPlan, Graph
 from pypeh.adapters.persistence.hosts import DirectoryIO
 from tests.test_utils.dirutils import get_absolute_path
@@ -2905,3 +2908,217 @@ class TestDataFrameAggregation(TestAggregation):
             "SUBJECTUNIQUE": df_ingested,
             "ENRICH_BASE": df_enriched,
         }
+
+
+class DataExtractProtocol(Protocol, Generic[T_DataType]):
+    data_format: T_DataType
+
+    def _filter(
+        self, data: T_DataType, config: FilterConfig
+    ) -> T_DataType: ...
+
+    def build_filter_config(
+        self, observation_filter_expression, dataset_label, type_annotations
+    ) -> FilterConfig: ...
+
+    def extract(
+        self,
+        source_dataset_series,
+        target_dataset_series,
+        observation_filter_expression,
+        dataset_label,
+        type_annotations,
+    ) -> DatasetSeries[T_DataType]: ...
+
+    def extract_from_source(
+        self, source, target
+    ) -> DatasetSeries[T_DataType]: ...
+
+    def execute_join_plan(self, base_data, datasets, join_plan): ...
+
+
+class FakeExtractAdapter(DataExtractInterface, Generic[T_DataType]):
+    def __init__(self):
+        self.calls: list[str] = []
+        self.reshaped_return = None
+        self.join_return = None
+        self.filter_return = None
+        self.filter_input = None
+        self.filter_config = None
+        self.join_base_data = None
+
+    @property
+    def data_format(self):
+        return dict
+
+    def _filter(self, data: T_DataType, config: FilterConfig) -> T_DataType:
+        self.calls.append("filter")
+        self.filter_input = data
+        self.filter_config = config
+        return self.filter_return if self.filter_return is not None else data
+
+    def extract_from_source(self, source, target):
+        self.calls.append("reshape")
+        return (
+            self.reshaped_return
+            if self.reshaped_return is not None
+            else target
+        )
+
+    def execute_join_plan(self, base_data, datasets, join_plan):
+        self.calls.append("join")
+        self.join_base_data = base_data
+        return self.join_return if self.join_return is not None else base_data
+
+
+class TestDataExtract(abc.ABC):
+    """Abstract base class for testing extract adapters."""
+
+    __test__ = False
+
+    @abc.abstractmethod
+    def get_adapter(self) -> DataExtractProtocol:
+        raise NotImplementedError
+
+    def test_getting_default_adapter_from_interface(self):
+        # No default extract adapter exists yet
+        with pytest.raises(NotImplementedError):
+            DataExtractInterface.get_default_adapter_class()
+
+    def test_build_filter_config_from_observation_filter_expression(self):
+        adapter = self.get_adapter()
+
+        obs_filter = ObservationFilterExpression(
+            filter_command="is_in",
+            filter_subject_contextual_field_references=[
+                ContextualFieldReference(
+                    field_label="country", dataset_label="D1"
+                )
+            ],
+            filter_arg_values=["BE", "BR"],
+        )
+        type_annotations = {
+            "D1": {"country": ObservablePropertyValueType.STRING}
+        }
+
+        result = adapter.build_filter_config(
+            observation_filter_expression=obs_filter,
+            dataset_label="D1",
+            type_annotations=type_annotations,
+        )
+
+        assert isinstance(result, FilterConfig)
+        assert result.filter_expression.command == "is_in"
+        assert result.filter_expression.subject == ["country"]
+        assert result.filter_expression.arg_values == ["BE", "BR"]
+
+    def test_extract_reshapes_then_filters(self):
+        adapter = self.get_adapter()
+
+        original_data = {"country": ["BE", "BR", "NL"]}
+        filtered_data = {"country": ["BE", "BR"]}
+
+        reshaped = DatasetSeries(label="reshaped")
+        base_dataset = reshaped.add_empty_dataset("D1")
+        base_dataset.data = original_data
+
+        adapter.reshaped_return = reshaped
+        adapter.filter_return = filtered_data
+
+        result = adapter.extract(
+            source_dataset_series=DatasetSeries(label="source"),
+            target_dataset_series=DatasetSeries(label="target"),
+            observation_filter_expression=None,
+            dataset_label="D1",
+            type_annotations={
+                "D1": {"country": ObservablePropertyValueType.STRING}
+            },
+        )
+
+        # reshape happens before filter and no join is performed
+        assert adapter.calls == ["reshape", "filter"]
+        # _filter received the reshaped base dataset's data
+        assert adapter.filter_input == original_data
+        # filtered data written back and reshaped series returned
+        assert result is reshaped
+        assert reshaped.parts["D1"].data == filtered_data
+
+    def test_extract_joins_dependencies(self):
+        adapter = self.get_adapter()
+
+        obs_filter = ObservationFilterExpression(
+            filter_command="is_in",
+            filter_subject_contextual_field_references=[
+                ContextualFieldReference(
+                    field_label="country", dataset_label="D2"
+                )
+            ],
+            filter_arg_values=["BE", "BR"],
+        )
+        type_annotations = {
+            "D1": {"id": ObservablePropertyValueType.STRING},
+            "D2": {"country": ObservablePropertyValueType.STRING},
+        }
+
+        filter_config = adapter.build_filter_config(
+            observation_filter_expression=obs_filter,
+            dataset_label="D1",
+            type_annotations=type_annotations,
+        )
+        assert filter_config.dependent_contextual_field_references.get("D2")
+
+        base_data = {"id": [1, 2, 3]}
+        joined_data = {"id": [1, 2, 3], "country": ["BE", "BR", "NL"]}
+
+        # Real DatasetSeries with a foreign key from D1 -> D2 so the
+        # interface can resolve the join without any patching.
+        reshaped = DatasetSeries(label="reshaped")
+        base_dataset = reshaped.add_empty_dataset("D1")
+        base_dataset.schema.add_observable_property(
+            "peh:id_d1", ObservablePropertyValueType.STRING, element_label="id"
+        )
+        base_dataset.schema.add_foreign_key_link(
+            element_label="id",
+            foreign_key_dataset_label="D2",
+            foreign_key_element_label="id",
+        )
+        base_dataset.data = base_data
+        dependent_dataset = reshaped.add_empty_dataset("D2")
+        dependent_dataset.schema.add_observable_property(
+            "peh:id_d2", ObservablePropertyValueType.STRING, element_label="id"
+        )
+        dependent_dataset.schema.add_observable_property(
+            "peh:country",
+            ObservablePropertyValueType.STRING,
+            element_label="country",
+        )
+        dependent_dataset.data = {"id": [1, 2], "country": ["BE", "BR"]}
+
+        adapter.reshaped_return = reshaped
+        adapter.join_return = joined_data
+        adapter.filter_return = joined_data
+
+        result = adapter.extract(
+            source_dataset_series=DatasetSeries(label="source"),
+            target_dataset_series=DatasetSeries(label="target"),
+            observation_filter_expression=obs_filter,
+            dataset_label="D1",
+            type_annotations=type_annotations,
+        )
+
+        # reshape, then join, then filter
+        assert adapter.calls == ["reshape", "join", "filter"]
+        # the join operated on the base dataset data
+        assert adapter.join_base_data == base_data
+        # _filter received the joined data
+        assert adapter.filter_input == joined_data
+        assert result is reshaped
+
+
+
+@pytest.mark.other
+class TestFakeExtract(TestDataExtract):
+    __test__ = True
+
+    def get_adapter(self) -> DataExtractProtocol:
+        return FakeExtractAdapter()
