@@ -306,6 +306,10 @@ calculation. When the source was produced by
 `split_dataset_series_by_observation`, source provenance recorded during split
 is used.
 
+Raises `ValueError` before touching `source_dataset_series` when a target
+observation design has no executable configuration. See
+[Calculation requirements](#calculation-requirements).
+
 ```python
 aggregate(
     source_dataset_series: DatasetSeries,
@@ -325,6 +329,52 @@ Delegate summarization to the registered aggregation adapter.
 `target_label_collision_strategy` has the same meaning as on `enrich`.
 Aggregation also uses the resolved target schema label as the dataframe result
 alias, so resolved target labels stay aligned with computed columns.
+
+Raises `ValueError` before allocating the aggregated series when a target
+observation design has no executable configuration. See
+[Calculation requirements](#calculation-requirements).
+
+### Calculation requirements
+
+`enrich` and `aggregate` are independent operations; neither requires the other
+to have run. `aggregate` reads only from the source `DatasetSeries`, so a target
+whose `was_derived_from` is a base (imported) observation can be aggregated
+without any prior enrichment.
+
+Both operations require each target observation design to be executable, and
+validate this up front:
+
+- At least one `ObservablePropertySpecification` in the target design must
+  carry a `calculation_design`.
+- Every specification must carry a `calculation_design`, *except* those
+  categorized as `identifying`, `required`, or `optional`. Exemption is
+  therefore defined positively by category rather than by exclusion.
+- A specification with no `specification_category` is **not** exempt and must
+  carry a `calculation_design`. `peh-model` types every field as optional, so an
+  omitted category is indistinguishable from an unset one and would otherwise
+  yield a field that is declared but never computed.
+
+Exempt categories describe structure (keys, stratifications) rather than
+computation. Unrecognised category codes need no handling here: `peh-model`
+rejects them when the `ObservablePropertySpecification` is constructed.
+
+A design that violates this raises `ValueError` naming the offending
+observation, its `observation_design`, and any uncalculable observable property
+IDs together with their category (reported as `uncategorized` when absent). All
+offending targets are reported in a single error. For `enrich`, the check runs
+before the source `DatasetSeries` is mutated, so a rejected call leaves it
+untouched. For `aggregate` it runs before the aggregated series is allocated,
+and before the aggregation path reads `specification_category`.
+
+Diagnostics are reported **per target observation**, not per unique
+`ObservationDesign`. Several target observations that share one
+`ObservationDesign` are each listed, and the observable property IDs are
+repeated for each of them. When a design has no calculable specification *and*
+has non-exempt specifications lacking one, both reasons appear in that
+observation's single entry.
+
+Note that the check applies to *target* designs only. Base observations passed
+to `build_dependency_graph` legitimately have no calculation designs.
 
 ## Namespace Methods
 

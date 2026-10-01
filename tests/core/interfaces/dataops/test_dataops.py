@@ -33,6 +33,7 @@ from pypeh.core.interfaces.dataops import (
     T_DataType,
     ValidationInterface,
 )
+from pypeh.core.models.identifiers import IdentifierContext
 from pypeh.core.models.internal_data_layout import (
     Dataset,
     DatasetSchema,
@@ -63,6 +64,135 @@ from tests.test_utils.dirutils import get_absolute_path
 
 def add_one(measurement):
     return measurement + 1
+
+
+COUNT_CALCULATION_DESIGN = CalculationDesign(
+    calculation_implementation=CalculationImplementation(
+        function_name=(
+            "pypeh.adapters.aggregation.polars_adapter.statistics."
+            "statistics_count_n"
+        ),
+        function_kwargs=[
+            CalculationKeywordArgument(
+                contextual_field_reference=ContextualFieldReference(
+                    dataset_label="obs:source",
+                    field_label="src:measure",
+                )
+            )
+        ],
+    )
+)
+
+
+# Reason fragment emitted for specifications that must carry a
+# CalculationDesign but do not. Covers `derived` and uncategorized specs alike,
+# since exemption is defined positively by category.
+CALCULATION_REQUIRED_REASON = (
+    "ObservablePropertySpecification(s) requiring a calculation_design but "
+    "lacking one:"
+)
+
+
+def build_calculability_container(
+    target_specifications: list[ObservablePropertySpecification],
+) -> CacheContainerView:
+    """
+    Minimal cache holding `obs:source` plus a single `obs:target` whose
+    ObservationDesign carries `target_specifications`.
+    """
+    container = CacheContainerFactory.new()
+    container.add(
+        Observation(id="obs:source", observation_design="design:source")
+    )
+    container.add(
+        Observation(
+            id="obs:target",
+            ui_label="target",
+            observation_design="design:target",
+        )
+    )
+    container.add(
+        ObservationDesign(
+            id="design:source",
+            observable_property_specifications=[
+                ObservablePropertySpecification(
+                    observable_property="src:measure",
+                    specification_category=(
+                        ObservablePropertySpecificationCategory.optional
+                    ),
+                ),
+            ],
+        )
+    )
+    container.add(
+        ObservationDesign(
+            id="design:target",
+            observable_property_specifications=target_specifications,
+        )
+    )
+    container.add(
+        ObservableProperty(
+            id="src:measure", short_name="measure", value_type="float"
+        )
+    )
+    container.add(
+        ObservableProperty(
+            id="target:value", short_name="value", value_type="float"
+        )
+    )
+    for suffix in ("a", "b", "c"):
+        container.add(
+            ObservableProperty(
+                id=f"target:value_{suffix}",
+                short_name=f"value_{suffix}",
+                value_type="float",
+            )
+        )
+    return CacheContainerView(container)
+
+
+class RecordingIdentifierProvider:
+    """
+    Counts mint calls so tests can assert that a resource was not constructed.
+
+    A DatasetSeries built without an identifier_provider silently falls back to
+    generate_ulid() and leaves no observable trace, so an ordering assertion
+    built on `len(provider)` would never run.
+    """
+
+    def __init__(self):
+        self.mint_calls: list[IdentifierContext] = []
+
+    def mint(self, context: IdentifierContext) -> str:
+        self.mint_calls.append(context)
+        return f"minted-{len(self.mint_calls)}"
+
+
+def build_calculability_source_series(
+    cache_view: CacheContainerView,
+    identifier_provider: RecordingIdentifierProvider | None = None,
+) -> DatasetSeries:
+    source = DatasetSeries(
+        label="source", identifier_provider=identifier_provider
+    )
+    source_dataset = source.add_empty_dataset("source_dataset")
+    source_dataset.add_observation_to_index("obs:source")
+    source_dataset.add_observable_property(
+        observable_property_id="src:measure",
+        data_type=ObservablePropertyValueType.FLOAT,
+        element_label="measure",
+    )
+    source._register_observable_property(
+        "src:measure", "obs:source", "source_dataset", "measure"
+    )
+    return source
+
+
+def require_observations(cache_view: CacheContainerView):
+    return (
+        cache_view.require("obs:target", "Observation"),
+        cache_view.require("obs:source", "Observation"),
+    )
 
 
 class DataOpsProtocol(Protocol, Generic[T_DataType]):
@@ -2581,6 +2711,498 @@ class TestEnrichment(abc.ABC):
                 assert len(values) > 0
         assert adapter.matches_schema(enriched_data, dataset_series)
 
+    def test_enrich_rejects_target_design_without_any_calculation_design(self):
+        adapter = self.get_adapter()
+        cache_view = build_calculability_container(
+            target_specifications=[
+                ObservablePropertySpecification(
+                    observable_property="target:value",
+                    specification_category=(
+                        ObservablePropertySpecificationCategory.identifying
+                    ),
+                ),
+            ]
+        )
+        target_observation, source_observation = require_observations(
+            cache_view
+        )
+        source = build_calculability_source_series(cache_view)
+
+        with pytest.raises(ValueError) as excinfo:
+            adapter.enrich(
+                source_dataset_series=source,
+                target_observations=[target_observation],
+                target_derived_from=[source_observation],
+                cache_view=cache_view,
+            )
+        message = str(excinfo.value)
+        assert "Cannot enrich" in message
+        assert "obs:target" in message
+        assert "design:target" in message
+        assert (
+            "no ObservablePropertySpecification with a calculation_design"
+            in (message)
+        )
+
+    def test_enrich_rejects_derived_spec_without_calculation_design(self):
+        adapter = self.get_adapter()
+        cache_view = build_calculability_container(
+            target_specifications=[
+                ObservablePropertySpecification(
+                    observable_property="src:measure",
+                    specification_category=(
+                        ObservablePropertySpecificationCategory.derived
+                    ),
+                    calculation_design=COUNT_CALCULATION_DESIGN,
+                ),
+                ObservablePropertySpecification(
+                    observable_property="target:value",
+                    specification_category=(
+                        ObservablePropertySpecificationCategory.derived
+                    ),
+                ),
+            ]
+        )
+        target_observation, source_observation = require_observations(
+            cache_view
+        )
+        source = build_calculability_source_series(cache_view)
+
+        with pytest.raises(ValueError) as excinfo:
+            adapter.enrich(
+                source_dataset_series=source,
+                target_observations=[target_observation],
+                target_derived_from=[source_observation],
+                cache_view=cache_view,
+            )
+        message = str(excinfo.value)
+        assert "Cannot enrich" in message
+        assert CALCULATION_REQUIRED_REASON in message
+        assert "'target:value'" in message
+        assert "(category: derived)" in message
+
+    def test_enrich_accepts_optional_specs_without_calculation_design(self):
+        # identifying/required/optional specs are exempt: they describe
+        # structure rather than computation.
+        adapter = self.get_adapter()
+        cache_view = build_calculability_container(
+            target_specifications=[
+                ObservablePropertySpecification(
+                    observable_property="target:value",
+                    specification_category=(
+                        ObservablePropertySpecificationCategory.optional
+                    ),
+                ),
+                ObservablePropertySpecification(
+                    observable_property="src:measure",
+                    specification_category=(
+                        ObservablePropertySpecificationCategory.derived
+                    ),
+                    calculation_design=COUNT_CALCULATION_DESIGN,
+                ),
+            ]
+        )
+        adapter._require_calculable_target_specifications(
+            target_observations=[
+                cache_view.require("obs:target", "Observation")
+            ],
+            cache_view=cache_view,
+            action_label="enrich",
+        )
+
+    def test_enrich_does_not_mutate_source_series_when_target_rejected(self):
+        adapter = self.get_adapter()
+        cache_view = build_calculability_container(
+            target_specifications=[
+                ObservablePropertySpecification(
+                    observable_property="target:value",
+                    specification_category=(
+                        ObservablePropertySpecificationCategory.optional
+                    ),
+                ),
+            ]
+        )
+        target_observation, source_observation = require_observations(
+            cache_view
+        )
+        source = build_calculability_source_series(cache_view)
+        source_dataset = source["source_dataset"]
+        assert source_dataset is not None
+        before_labels = set(source_dataset.get_element_labels())
+        before_context = dict(source._context_index)
+
+        with pytest.raises(ValueError):
+            adapter.enrich(
+                source_dataset_series=source,
+                target_observations=[target_observation],
+                target_derived_from=[source_observation],
+                cache_view=cache_view,
+            )
+
+        assert set(source_dataset.get_element_labels()) == before_labels
+        assert dict(source._context_index) == before_context
+        assert source_dataset.data is None
+
+    def test_enrich_reports_every_uncalculable_target_in_one_error(self):
+        adapter = self.get_adapter()
+        container = CacheContainerFactory.new()
+        for suffix in ("a", "b"):
+            container.add(
+                Observation(
+                    id=f"obs:target_{suffix}",
+                    ui_label=f"target_{suffix}",
+                    observation_design="design:uncalculable",
+                )
+            )
+            container.add(
+                ObservableProperty(
+                    id=f"target:value_{suffix}",
+                    short_name="value",
+                    value_type="float",
+                )
+            )
+        container.add(
+            ObservationDesign(
+                id="design:uncalculable",
+                observable_property_specifications=[
+                    ObservablePropertySpecification(
+                        observable_property="target:value_a",
+                        specification_category=(
+                            ObservablePropertySpecificationCategory.optional
+                        ),
+                    ),
+                ],
+            )
+        )
+        cache_view = CacheContainerView(container)
+        targets = [
+            cache_view.require("obs:target_a", "Observation"),
+            cache_view.require("obs:target_b", "Observation"),
+        ]
+
+        with pytest.raises(ValueError) as excinfo:
+            adapter._require_calculable_target_specifications(
+                target_observations=targets,
+                cache_view=cache_view,
+                action_label="enrich",
+            )
+        message = str(excinfo.value)
+        assert "2 of 2 target observation(s)" in message
+        assert "obs:target_a" in message
+        assert "obs:target_b" in message
+
+    def test_enrich_counts_observations_not_designs_when_design_is_shared(
+        self,
+    ):
+        # Two target observations pointing at one ObservationDesign: the count
+        # and the wording must refer to observations, since there is only a
+        # single offending design.
+        adapter = self.get_adapter()
+        container = CacheContainerFactory.new()
+        container.add(
+            Observation(id="obs:source", observation_design="design:source")
+        )
+        for suffix in ("a", "b"):
+            container.add(
+                Observation(
+                    id=f"obs:target_{suffix}",
+                    ui_label=f"target_{suffix}",
+                    observation_design="design:shared",
+                )
+            )
+        container.add(
+            ObservableProperty(
+                id="target:value", short_name="value", value_type="float"
+            )
+        )
+        container.add(
+            ObservationDesign(
+                id="design:shared",
+                observable_property_specifications=[
+                    ObservablePropertySpecification(
+                        observable_property="target:value",
+                        specification_category=(
+                            ObservablePropertySpecificationCategory.optional
+                        ),
+                    ),
+                ],
+            )
+        )
+        cache_view = CacheContainerView(container)
+        targets = [
+            cache_view.require("obs:target_a", "Observation"),
+            cache_view.require("obs:target_b", "Observation"),
+        ]
+
+        with pytest.raises(ValueError) as excinfo:
+            adapter._require_calculable_target_specifications(
+                target_observations=targets,
+                cache_view=cache_view,
+                action_label="enrich",
+            )
+        message = str(excinfo.value)
+        assert "2 of 2 target observation(s)" in message
+        assert "ObservationDesign(s)" not in message
+        # Both observations are listed against the one shared design.
+        assert message.count("'design:shared'") == 2
+
+    def test_enrich_reports_derived_ids_when_none_are_calculable(self):
+        # A design whose specifications are all derived and all lack a
+        # calculation_design must report both reasons in a single entry,
+        # including every offending observable property id.
+        adapter = self.get_adapter()
+        cache_view = build_calculability_container(
+            target_specifications=[
+                ObservablePropertySpecification(
+                    observable_property=f"target:value_{suffix}",
+                    specification_category=(
+                        ObservablePropertySpecificationCategory.derived
+                    ),
+                )
+                for suffix in ("a", "b", "c")
+            ]
+        )
+        target_observation, source_observation = require_observations(
+            cache_view
+        )
+        source = build_calculability_source_series(cache_view)
+
+        with pytest.raises(ValueError) as excinfo:
+            adapter.enrich(
+                source_dataset_series=source,
+                target_observations=[target_observation],
+                target_derived_from=[source_observation],
+                cache_view=cache_view,
+            )
+        message = str(excinfo.value)
+        # Both reasons appear in the one entry for this observation.
+        assert (
+            "no ObservablePropertySpecification with a calculation_design"
+            in (message)
+        )
+        assert CALCULATION_REQUIRED_REASON in message
+        # And the ids of every uncalculable derived spec are named.
+        for suffix in ("a", "b", "c"):
+            assert f"'target:value_{suffix}'" in message
+        # Exactly one entry, so the two reasons are not reported separately.
+        assert message.count("- observation 'obs:target'") == 1
+
+    def test_enrich_reports_derived_ids_beside_missing_calculable_spec(self):
+        # Mixed design: one spec is calculable, so the "no specification with a
+        # calculation_design" reason does not apply, but the derived spec
+        # without one is still reported by id.
+        adapter = self.get_adapter()
+        cache_view = build_calculability_container(
+            target_specifications=[
+                ObservablePropertySpecification(
+                    observable_property="src:measure",
+                    specification_category=(
+                        ObservablePropertySpecificationCategory.derived
+                    ),
+                    calculation_design=COUNT_CALCULATION_DESIGN,
+                ),
+                ObservablePropertySpecification(
+                    observable_property="target:value",
+                    specification_category=(
+                        ObservablePropertySpecificationCategory.derived
+                    ),
+                ),
+            ]
+        )
+        target_observation, source_observation = require_observations(
+            cache_view
+        )
+        source = build_calculability_source_series(cache_view)
+
+        with pytest.raises(ValueError) as excinfo:
+            adapter.enrich(
+                source_dataset_series=source,
+                target_observations=[target_observation],
+                target_derived_from=[source_observation],
+                cache_view=cache_view,
+            )
+        message = str(excinfo.value)
+        assert "'target:value'" in message
+        assert "has no ObservablePropertySpecification" not in message
+
+    def test_enrich_accepts_design_with_only_exempt_specifications(self):
+        # identifying/required/optional specs are exempt, but a design made up
+        # solely of them still has nothing to execute.
+        adapter = self.get_adapter()
+        cache_view = build_calculability_container(
+            target_specifications=[
+                ObservablePropertySpecification(
+                    observable_property="target:value",
+                    specification_category=(
+                        ObservablePropertySpecificationCategory.identifying
+                    ),
+                ),
+            ]
+        )
+        target_observation, source_observation = require_observations(
+            cache_view
+        )
+        source = build_calculability_source_series(cache_view)
+
+        with pytest.raises(ValueError) as excinfo:
+            adapter.enrich(
+                source_dataset_series=source,
+                target_observations=[target_observation],
+                target_derived_from=[source_observation],
+                cache_view=cache_view,
+            )
+        message = str(excinfo.value)
+        assert (
+            "has no ObservablePropertySpecification with a calculation_design"
+            in (message)
+        )
+        # Every category is exempt, so no offending specs are listed.
+        assert CALCULATION_REQUIRED_REASON not in message
+
+    def test_enrich_rejects_uncategorized_spec_without_calculation_design(
+        self,
+    ):
+        # peh_model permits specification_category=None, and the guard must not
+        # mistake that for an exempt category just because the spec is not
+        # 'derived'.
+        adapter = self.get_adapter()
+        cache_view = build_calculability_container(
+            target_specifications=[
+                ObservablePropertySpecification(
+                    observable_property="src:measure",
+                    specification_category=(
+                        ObservablePropertySpecificationCategory.derived
+                    ),
+                    calculation_design=COUNT_CALCULATION_DESIGN,
+                ),
+                ObservablePropertySpecification(
+                    observable_property="target:value",
+                    specification_category=None,
+                ),
+            ]
+        )
+        target_observation, source_observation = require_observations(
+            cache_view
+        )
+        source = build_calculability_source_series(cache_view)
+
+        with pytest.raises(ValueError) as excinfo:
+            adapter.enrich(
+                source_dataset_series=source,
+                target_observations=[target_observation],
+                target_derived_from=[source_observation],
+                cache_view=cache_view,
+            )
+        message = str(excinfo.value)
+        assert CALCULATION_REQUIRED_REASON in message
+        assert "'target:value' (category: uncategorized)" in message
+        # The calculable sibling means the level-1 reason does not apply.
+        assert "has no ObservablePropertySpecification" not in message
+
+    def test_enrich_rejects_uncategorized_spec_beside_calculable_one(self):
+        # Both specs are uncategorized; one is calculable, so the design looks
+        # executable at a glance while one field still has no computation.
+        adapter = self.get_adapter()
+        cache_view = build_calculability_container(
+            target_specifications=[
+                ObservablePropertySpecification(
+                    observable_property="target:value_a",
+                    specification_category=None,
+                    calculation_design=COUNT_CALCULATION_DESIGN,
+                ),
+                ObservablePropertySpecification(
+                    observable_property="target:value_b",
+                    specification_category=None,
+                ),
+            ]
+        )
+        target_observation, source_observation = require_observations(
+            cache_view
+        )
+        source = build_calculability_source_series(cache_view)
+
+        with pytest.raises(ValueError) as excinfo:
+            adapter.enrich(
+                source_dataset_series=source,
+                target_observations=[target_observation],
+                target_derived_from=[source_observation],
+                cache_view=cache_view,
+            )
+        message = str(excinfo.value)
+        assert "'target:value_b' (category: uncategorized)" in message
+        # The calculable spec is not reported.
+        assert "'target:value_a'" not in message
+
+    def test_enrich_reports_every_uncategorized_spec(self):
+        # All specs uncategorized and none calculable: both reasons appear in
+        # the single per-observation entry.
+        adapter = self.get_adapter()
+        cache_view = build_calculability_container(
+            target_specifications=[
+                ObservablePropertySpecification(
+                    observable_property=f"target:value_{suffix}",
+                    specification_category=None,
+                )
+                for suffix in ("a", "b")
+            ]
+        )
+        target_observation, source_observation = require_observations(
+            cache_view
+        )
+        source = build_calculability_source_series(cache_view)
+
+        with pytest.raises(ValueError) as excinfo:
+            adapter.enrich(
+                source_dataset_series=source,
+                target_observations=[target_observation],
+                target_derived_from=[source_observation],
+                cache_view=cache_view,
+            )
+        message = str(excinfo.value)
+        assert (
+            "no ObservablePropertySpecification with a calculation_design"
+            in message
+        )
+        assert CALCULATION_REQUIRED_REASON in message
+        for suffix in ("a", "b"):
+            assert (
+                f"'target:value_{suffix}' (category: uncategorized)" in message
+            )
+        assert message.count("- observation 'obs:target'") == 1
+
+    def test_enrich_accepts_uncategorized_spec_with_calculation_design(self):
+        # An uncategorized spec that IS calculable is fine: the guard targets
+        # missing computation, not the missing label.
+        adapter = self.get_adapter()
+        cache_view = build_calculability_container(
+            target_specifications=[
+                ObservablePropertySpecification(
+                    observable_property="target:value",
+                    specification_category=None,
+                    calculation_design=COUNT_CALCULATION_DESIGN,
+                ),
+            ]
+        )
+        target_observation, source_observation = require_observations(
+            cache_view
+        )
+        source = build_calculability_source_series(cache_view)
+
+        adapter._require_calculable_target_specifications(
+            target_observations=[target_observation],
+            cache_view=cache_view,
+            action_label="enrich",
+        )
+
+    def test_unknown_specification_category_is_rejected_by_peh_model(self):
+        # Documents why the guard needs no branch for unrecognised codes:
+        # peh_model refuses to construct such a specification at all.
+        with pytest.raises(ValueError, match="Unknown"):
+            ObservablePropertySpecification(
+                observable_property="target:value",
+                specification_category="dervied",
+            )
+
 
 @pytest.mark.dataframe
 class TestDataFrameDataOps(
@@ -3000,6 +3622,152 @@ class TestAggregation(abc.ABC):
         }
         assert summary.data["count_one__count"].to_list() == [3]
         assert summary.data["count_two__count"].to_list() == [3]
+
+    def test_summarize_rejects_target_without_any_calculation_design(self):
+        adapter = self.get_adapter()
+        cache_view = build_calculability_container(
+            target_specifications=[
+                ObservablePropertySpecification(
+                    observable_property="target:value",
+                    specification_category=(
+                        ObservablePropertySpecificationCategory.identifying
+                    ),
+                ),
+            ]
+        )
+        target_observation, source_observation = require_observations(
+            cache_view
+        )
+        source = build_calculability_source_series(cache_view)
+
+        with pytest.raises(ValueError) as excinfo:
+            adapter.summarize(
+                source_dataset_series=source,
+                target_observations=[target_observation],
+                target_derived_from=[source_observation],
+                cache_view=cache_view,
+            )
+        message = str(excinfo.value)
+        assert "Cannot aggregate" in message
+        assert "obs:target" in message
+        assert "design:target" in message
+
+    def test_summarize_rejects_derived_spec_without_calculation_design(self):
+        adapter = self.get_adapter()
+        cache_view = build_calculability_container(
+            target_specifications=[
+                ObservablePropertySpecification(
+                    observable_property="src:measure",
+                    specification_category=(
+                        ObservablePropertySpecificationCategory.derived
+                    ),
+                    calculation_design=COUNT_CALCULATION_DESIGN,
+                ),
+                ObservablePropertySpecification(
+                    observable_property="target:value",
+                    specification_category=(
+                        ObservablePropertySpecificationCategory.derived
+                    ),
+                ),
+            ]
+        )
+        target_observation, source_observation = require_observations(
+            cache_view
+        )
+        source = build_calculability_source_series(cache_view)
+
+        with pytest.raises(ValueError) as excinfo:
+            adapter.summarize(
+                source_dataset_series=source,
+                target_observations=[target_observation],
+                target_derived_from=[source_observation],
+                cache_view=cache_view,
+            )
+        message = str(excinfo.value)
+        assert "Cannot aggregate" in message
+        assert CALCULATION_REQUIRED_REASON in message
+        assert "'target:value'" in message
+        assert "(category: derived)" in message
+
+    def test_summarize_rejects_uncategorized_spec_with_named_error(self):
+        # Regression: an uncategorized target spec used to slip past the guard
+        # and reach the bare `assert specification_category is not None` deep
+        # in summarize, surfacing as a message-less AssertionError. It must now
+        # be rejected up front with an actionable ValueError.
+        adapter = self.get_adapter()
+        cache_view = build_calculability_container(
+            target_specifications=[
+                ObservablePropertySpecification(
+                    observable_property="src:measure",
+                    specification_category=(
+                        ObservablePropertySpecificationCategory.derived
+                    ),
+                    calculation_design=COUNT_CALCULATION_DESIGN,
+                ),
+                ObservablePropertySpecification(
+                    observable_property="target:value",
+                    specification_category=None,
+                ),
+            ]
+        )
+        target_observation, source_observation = require_observations(
+            cache_view
+        )
+        source = build_calculability_source_series(cache_view)
+
+        # Not AssertionError: the guard must run before summarize inspects
+        # categories.
+        with pytest.raises(ValueError) as excinfo:
+            adapter.summarize(
+                source_dataset_series=source,
+                target_observations=[target_observation],
+                target_derived_from=[source_observation],
+                cache_view=cache_view,
+            )
+        message = str(excinfo.value)
+        assert "Cannot aggregate" in message
+        assert "'target:value' (category: uncategorized)" in message
+
+    def test_summarize_rejects_before_allocating_aggregated_series(self):
+        adapter = self.get_adapter()
+        cache_view = build_calculability_container(
+            target_specifications=[
+                ObservablePropertySpecification(
+                    observable_property="target:value",
+                    specification_category=(
+                        ObservablePropertySpecificationCategory.optional
+                    ),
+                ),
+            ]
+        )
+        target_observation, source_observation = require_observations(
+            cache_view
+        )
+        provider = RecordingIdentifierProvider()
+        source = build_calculability_source_series(
+            cache_view, identifier_provider=provider
+        )
+        # Sanity check: the provider is actually wired up, so a mint during
+        # summarize would be observable rather than silently untraceable.
+        assert provider.mint_calls
+        baseline = len(provider.mint_calls)
+
+        with pytest.raises(ValueError):
+            adapter.summarize(
+                source_dataset_series=source,
+                target_observations=[target_observation],
+                target_derived_from=[source_observation],
+                cache_view=cache_view,
+            )
+
+        assert len(provider.mint_calls) == baseline
+
+    def test_summarize_allocating_aggregated_series_would_be_observable(self):
+        # Guards the guard above: prove the recording provider detects a
+        # DatasetSeries construction, so the assertion above is meaningful.
+        provider = RecordingIdentifierProvider()
+        DatasetSeries(label="aggregated_probe", identifier_provider=provider)
+        assert len(provider.mint_calls) == 1
 
 
 @pytest.mark.dataframe

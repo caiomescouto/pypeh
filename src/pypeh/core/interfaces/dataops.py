@@ -314,6 +314,21 @@ class DataOpsInterface(Generic[T_DataType]):
         return element_label
 
     @staticmethod
+    def _observable_property_specification_id(
+        observable_property_spec: peh.ObservablePropertySpecification,
+    ) -> str:
+        """
+        Best-effort identifier of an ObservablePropertySpecification target.
+
+        `ObservablePropertySpecification.observable_property` is only an
+        identifier on some resources; others inline the referenced resource.
+        """
+        observable_property = observable_property_spec.observable_property
+        if isinstance(observable_property, peh.ObservableProperty):
+            return observable_property.id
+        return str(observable_property)
+
+    @staticmethod
     def _identifier_tail(identifier: str) -> str:
         return identifier.rsplit("/", 1)[-1].rsplit(":", 1)[-1]
 
@@ -511,6 +526,110 @@ class DataOpsInterface(Generic[T_DataType]):
                     )
                 ret[resolved_element_label] = observable_property_spec
         return ret
+
+    def _require_calculable_target_specifications(
+        self,
+        target_observations: Sequence[peh.Observation],
+        cache_view: CacheContainerView,
+        action_label: str,
+    ) -> None:
+        """
+        Reject target observations whose design cannot produce any result.
+
+        A target design is only executable when at least one of its
+        ObservablePropertySpecifications carries a CalculationDesign. In
+        addition, every specification that is not exempt must carry one.
+
+        Exemption is defined positively: only the categories identifying,
+        required and optional are exempt, because they describe structure
+        (keys, stratifications) rather than computation. Anything else must be
+        calculable, which covers `derived` specifications and uncategorized
+        ones (`specification_category is None`). The check is therefore
+        fail-closed: peh_model types every field as Optional and makes no claim
+        about which specifications are semantically complete.
+
+        Unrecognised category codes need no handling here because peh_model
+        rejects them when the ObservablePropertySpecification is constructed.
+
+        Diagnostics are reported per target observation, so several
+        observations sharing one ObservationDesign are each listed. The
+        offending observable property IDs are therefore reported once per
+        observation.
+        """
+        # Compare against the textual category, which is how peh_model
+        # stringifies the value it stores on an ObservablePropertySpecification.
+        # Note that the enum class attributes are PermissibleValue objects whose
+        # str() is a repr, so `.text` is required rather than str().
+        exempt_categories = frozenset(
+            category.text
+            for category in (
+                peh.ObservablePropertySpecificationCategory.identifying,
+                peh.ObservablePropertySpecificationCategory.required,
+                peh.ObservablePropertySpecificationCategory.optional,
+            )
+        )
+        uncalculable: list[str] = []
+        for target_observation in target_observations:
+            observation_design_id = target_observation.observation_design
+            assert isinstance(observation_design_id, str)
+            observation_design = cache_view.require(
+                observation_design_id, "ObservationDesign"
+            )
+            assert isinstance(observation_design, peh.ObservationDesign)
+            observable_property_specs = (
+                observation_design.observable_property_specifications
+            )
+            assert observable_property_specs is not None
+            uncalculable_specs = [
+                (
+                    self._observable_property_specification_id(spec),
+                    (
+                        "uncategorized"
+                        if spec.specification_category is None
+                        else str(spec.specification_category)
+                    ),
+                )
+                for spec in observable_property_specs
+                if spec.calculation_design is None
+                and str(spec.specification_category) not in exempt_categories
+            ]
+            has_calculable_specification = any(
+                spec.calculation_design is not None
+                for spec in observable_property_specs
+            )
+            if has_calculable_specification and len(uncalculable_specs) == 0:
+                continue
+            reasons = []
+            if not has_calculable_specification:
+                reasons.append(
+                    "no ObservablePropertySpecification with a "
+                    "calculation_design"
+                )
+            if len(uncalculable_specs) > 0:
+                reasons.append(
+                    "ObservablePropertySpecification(s) requiring a "
+                    "calculation_design but lacking one: "
+                    + ", ".join(
+                        f"{spec_id!r} (category: {category})"
+                        for spec_id, category in uncalculable_specs
+                    )
+                )
+            uncalculable.append(
+                f"  - observation {target_observation.id!r} "
+                f"(observation_design {observation_design_id!r}) has "
+                + "; ".join(reasons)
+            )
+        if len(uncalculable) > 0:
+            raise ValueError(
+                f"Cannot {action_label}: "
+                f"{len(uncalculable)} of {len(target_observations)} target "
+                "observation(s) have no executable configuration.\n"
+                + "\n".join(uncalculable)
+                + "\nAt least one ObservablePropertySpecification must carry a "
+                "calculation_design. Every specification must carry one except "
+                "those categorized as identifying, required or optional; a "
+                "derived or uncategorized specification is not exempt."
+            )
 
     def get_dataset_by_observation_id(
         self, dataset_series: DatasetSeries, observation_id: str
@@ -2356,6 +2475,12 @@ class DataEnrichmentInterface(DataOpsInterface, Generic[T_DataType]):
         cache_view: CacheContainerView,
         target_label_collision_strategy: LabelCollisionStrategy = "error",
     ) -> DatasetSeries:
+        # VALIDATE TARGET DESIGNS BEFORE MUTATING THE SOURCE_DATASET_SERIES
+        self._require_calculable_target_specifications(
+            target_observations=target_observations,
+            cache_view=cache_view,
+            action_label="enrich",
+        )
         # ADD TARGET OBSERVATION TO SOURCE_DATASET_SERIES
         for source_obs, target_observation in zip(
             target_derived_from, target_observations
@@ -2534,6 +2659,12 @@ class AggregationInterface(DataOpsInterface, Generic[T_DataType]):
         cache_view: CacheContainerView,
         target_label_collision_strategy: LabelCollisionStrategy = "error",
     ) -> DatasetSeries:
+        # VALIDATE TARGET DESIGNS BEFORE ALLOCATING THE AGGREGATED SERIES
+        self._require_calculable_target_specifications(
+            target_observations=target_observations,
+            cache_view=cache_view,
+            action_label="aggregate",
+        )
         # ADD TARGET OBSERVATION TO A NEW DATASET_SERIES
         aggregated_dataset_series: DatasetSeries = DatasetSeries(
             label=f"{source_dataset_series.label}_aggregated",
