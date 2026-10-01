@@ -304,8 +304,12 @@ register an adapter for its functionality key:
 session.register_adapter("validation", validation_adapter)
 session.register_adapter("dataops", dataops_adapter)
 session.register_adapter("enrichment", enrichment_adapter)
-session.register_adapter("aggregate", aggregation_adapter)
+session.register_adapter("extract", extract_adapter)
+session.register_adapter("aggregation", aggregation_adapter)
 ```
+
+Registered adapters are scoped to the session they are registered on; other
+`Session` instances keep using their own (default) adapters.
 
 You can also register by import path:
 
