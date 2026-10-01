@@ -72,8 +72,6 @@ T_AdapterType = TypeVar("T_AdapterType")
 
 
 class Session(Generic[T_AdapterType, T_DataType]):
-    _adapter_mapping: dict[str, T_AdapterType] = dict()
-
     def __init__(
         self,
         *,
@@ -102,6 +100,8 @@ class Session(Generic[T_AdapterType, T_DataType]):
         connection_map, default_connection = self._normalize_configs(
             connection_config, default_connection
         )
+        # Per instance: a class-level dict would be shared by every Session.
+        self._adapter_mapping: dict[str, T_AdapterType] = {}
         self.connection_manager: ConnectionManager = ConnectionManager(
             ValidatedImportConfig()
         )

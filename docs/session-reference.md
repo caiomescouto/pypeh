@@ -245,13 +245,14 @@ register_default_adapter(interface_functionality: str)
 ```
 
 Register and return the default adapter class for `validation`, `dataops`,
-`enrichment`, or supported aggregation functionality.
+`enrichment`, `extract`, or `aggregation`.
 
 ```python
 register_adapter(interface_functionality: str, adapter) -> None
 ```
 
-Register an adapter instance or class for a workflow key.
+Register an adapter instance or class for a workflow key. The registration only
+applies to this session; other `Session` instances are unaffected.
 
 ```python
 register_adapter_by_name(

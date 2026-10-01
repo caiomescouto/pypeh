@@ -523,6 +523,39 @@ class TestSessionEnrich:
 
 
 @pytest.mark.core
+class TestSessionAdapterMappingIsolation:
+    """
+    `Session._adapter_mapping` must be per instance. A class-level mapping is
+    shared by every Session in the process, so registering an adapter on one
+    session silently replaces the default adapter on all others. The resulting
+    failures depend on pytest file ordering and marker selection, which is why
+    they escape the per-target CI invocations.
+    """
+
+    def test_registering_an_adapter_does_not_leak_into_other_sessions(self):
+        first = get_session()
+        second = get_session()
+
+        first.register_adapter(
+            "dataops",
+            RecordingEnrichmentAdapter(result=DatasetSeries(label="stub")),
+        )
+
+        assert "dataops" in first._adapter_mapping
+        assert "dataops" not in second._adapter_mapping
+
+    def test_session_created_after_registration_keeps_default_adapters(self):
+        get_session().register_adapter(
+            "dataops",
+            RecordingEnrichmentAdapter(result=DatasetSeries(label="stub")),
+        )
+
+        later = Session()
+
+        assert "dataops" not in later._adapter_mapping
+
+
+@pytest.mark.core
 class TestSessionSplitDatasetSeriesByObservation:
     def test_split_dataset_series_by_observation_delegates_to_adapter(self):
         session = get_session()
