@@ -358,6 +358,35 @@ summary = session.aggregate(
 The target observation list and source observation list must have the same
 length.
 
+Note that `enrich` mutates the `source_dataset_series` in place and returns it,
+so `enriched` and `dataset_series` refer to the same object above. This is why
+`aggregate` can read the output of the preceding `enrich` call.
+
+`enrich` and `aggregate` are independent operations. `aggregate` reads only
+from the source `DatasetSeries`, so a target whose `was_derived_from` is a base
+(imported) observation can be aggregated without any prior enrichment. The
+example above only requires `enrich` first because the aggregation target
+derives from the enriched observation rather than from the base one.
+
+### Calculation requirements
+
+Both operations require each target observation design to be executable, and
+validate this before doing any work:
+
+- At least one `ObservablePropertySpecification` in the target design must
+  carry a `calculation_design`.
+- Every specification must carry a `calculation_design`, *except* those
+  categorized as `identifying`, `required`, or `optional`, which describe
+  structure rather than computation.
+- A specification with no `specification_category` is not exempt and must carry
+  a `calculation_design`.
+
+A design that violates this raises `ValueError` naming the offending
+observation, its `observation_design`, and any uncalculable observable property
+IDs together with their category, so a misconfigured pipeline fails immediately
+instead of silently producing an empty or incomplete dataset. All offending
+targets are reported in a single error, listed per target observation.
+
 Derived target observations can also contain multiple observable properties
 whose preferred output labels are identical. By default, `enrich` and
 `aggregate` reject this because dataframe adapters need concrete column names
