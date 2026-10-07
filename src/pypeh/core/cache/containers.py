@@ -15,7 +15,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from peh_model.peh import NamedThing, EntityList
-from typing import Dict, Type, TYPE_CHECKING, Set, TypeVar, Generic
+from typing import Dict, Type, TYPE_CHECKING, TypeVar, Generic
 
 from pypeh.core.cache.utils import get_entity_type, load_entities_from_tree
 from pypeh.core.models.peh_wrappers import get_from_entity_list_map
@@ -50,7 +50,7 @@ class CacheContainer(ABC, Generic[T_Container]):
 
     def __init__(self):
         self._storage = T_Container
-        self._class_index: Dict[str, Set[str]] = defaultdict(set)
+        self._class_index: Dict[str, Dict[str, None]] = defaultdict(dict)
 
     @abstractmethod
     def add(self, entity: T_NamedThingLike) -> None:
@@ -181,13 +181,13 @@ class CacheContainerView(Generic[T_Container]):
 class MappingContainer(CacheContainer[Dict]):
     def __init__(self):
         self._storage: Dict[str, T_NamedThingLike] = dict()
-        self._class_index: Dict[str, Set[str]] = defaultdict(set)
+        self._class_index: Dict[str, Dict[str, None]] = defaultdict(dict)
 
     def _add_object(
         self, entity: T_NamedThingLike, entity_id: str, entity_type: str
     ) -> None:
         self._storage[entity_id] = entity
-        self._class_index[entity_type].add(entity_id)
+        self._class_index[entity_type][entity_id] = None
 
     def exists(self, entity_id: str, entity_type: str | None = None) -> bool:
         return entity_id in self._storage.keys()
@@ -225,7 +225,7 @@ class MappingContainer(CacheContainer[Dict]):
         self, entity_id: str, entity_type: str
     ) -> Optional[T_NamedThingLike]:
         if entity_type in self._class_index:
-            self._class_index[entity_type].remove(entity_id)
+            del self._class_index[entity_type][entity_id]
         return self._storage.pop(entity_id, None)
 
     def get_all(
