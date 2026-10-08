@@ -9,11 +9,11 @@ requires-python = ">=3.11, <4.0.0"
 readme = "README.md"
 license = "MIT"
 dependencies = [
-    "linkml-runtime>=1.9.1",
+    "linkml-runtime>=1.11.1",
     "peh-model>=0.7.3,<0.8.0",
     "pydantic-settings",
     "fsspec",
-	"python-ulid>=3.1.0",
+	"python-ulid>=4.0.1",
 ]
 
 [project.optional-dependencies]
@@ -28,14 +28,14 @@ dataframe-adapter = [
 s3-adapter = ["s3fs"]
 polars-adapter=["polars", "pyarrow", "fastexcel"]
 compehndly=["compehndly>=0.0.1a4"]
-test-core = ["pytest>=8.2.0,<9"]
-test-dataframe=["numpy", "scipy>=1.15.3"]
+test-core = ["pytest>=9.1.1,<10"]
+test-dataframe=["numpy", "scipy>=1.17.1"]
 test-s3 = ["s3fs", "moto[s3,server]"]
 xlsxwriter = ["polars[xlsxwriter]"]
 
 [dependency-groups]
 test-core = [
-    "pytest>=8.2.0,<9",
+    "pytest>=9.1.1,<10",
 ]
 test-dataframe = [
     "peh-dataguard>=0.6.1,<1.0",
@@ -43,7 +43,7 @@ test-dataframe = [
     "pyarrow",
     "fastexcel",
     "numpy",
-    "scipy>=1.15.3",
+    "scipy>=1.17.1",
 ]
 test-rocrate = [
     "rocrate",
@@ -51,12 +51,12 @@ test-rocrate = [
 test-s3 = ["s3fs", "moto[s3,server]"]
 test-compehndly = ["compehndly>=0.0.1a4"]
 docs = [
-    "mkdocs>=1.6.0,<2",
+    "mkdocs>=1.6.1,<2",
 ]
 dev = [
     # Pinned: `make format` / `make format-diff` run this exact ruff version.
-    "ruff>=0.4.4,<0.5",
-    "pytest-cov>=7.0.0",
+    "ruff>=0.16.10,<0.17",
+    "pytest-cov>=7.1.0",
 ]
 
 [tool.uv]

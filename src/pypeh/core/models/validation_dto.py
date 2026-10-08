@@ -190,13 +190,13 @@ class ValidationExpression(BaseModel):
                 data_type = type_annotations.get(ref_dataset_label, {}).get(
                     field_reference.field_label, None
                 )
-                assert (
-                    data_type is not None
-                ), f"Did not find type_annotation for dataset with label {ref_dataset_label} and field_label {field_reference.field_label}"
+                assert data_type is not None, (
+                    f"Did not find type_annotation for dataset with label {ref_dataset_label} and field_label {field_reference.field_label}"
+                )
                 data_types.add(data_type)
-            assert (
-                len(data_types) <= 1
-            ), f'Found the following datatypes for the subject_contextual_field_references: {", ".join(dt for dt in data_types)}'
+            assert len(data_types) <= 1, (
+                f"Found the following datatypes for the subject_contextual_field_references: {', '.join(dt for dt in data_types)}"
+            )
             data_type = next(iter(data_types), None)
         if data_type is None:
             data_type = ObservablePropertyValueType.STRING

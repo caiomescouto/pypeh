@@ -99,8 +99,7 @@ class ExcelIOImpl(IOAdapter):
     ) -> CastErrorPolicy:
         if cast_error_policy not in {"null", "raise", "report"}:
             raise ValueError(
-                "cast_error_policy must be one of 'null', 'raise', or "
-                "'report'"
+                "cast_error_policy must be one of 'null', 'raise', or 'report'"
             )
         return cast_error_policy
 

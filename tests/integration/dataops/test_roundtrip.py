@@ -20,13 +20,13 @@ INPUT_DIR = Path(__file__).with_name("input")
 CONNECTION_LABEL = "local_file"
 
 DATA_IMPORT_CONFIG_ID = (
-    "https://w3id.org/peh/id/data-import-config/" "01KMYXDM0D3BMZTKC93YR0MEJQ"
+    "https://w3id.org/peh/id/data-import-config/01KMYXDM0D3BMZTKC93YR0MEJQ"
 )
 ENRICHMENT_OBSERVATION_GROUP_ID = (
-    "https://w3id.org/peh/id/observation-group/" "01KMYXDM0D4BMZTKC93YR0MPJV"
+    "https://w3id.org/peh/id/observation-group/01KMYXDM0D4BMZTKC93YR0MPJV"
 )
 AGGREGATION_OBSERVATION_GROUP_ID = (
-    "https://w3id.org/peh/id/observation-group/" "basic-aggregation-test"
+    "https://w3id.org/peh/id/observation-group/basic-aggregation-test"
 )
 EXCEL_SOURCE = "DataExample_PARC_ALIGNED_STUDIES_ADULTS.xlsx"
 

@@ -486,9 +486,9 @@ class DataOpsInterface(Generic[T_DataType]):
                 observable_property_spec.observable_property,
                 "ObservableProperty",
             )
-            assert isinstance(
-                observable_property, peh.ObservableProperty
-            ), f"Could not find observable property with id {observable_property_spec.observable_property} in cache."
+            assert isinstance(observable_property, peh.ObservableProperty), (
+                f"Could not find observable property with id {observable_property_spec.observable_property} in cache."
+            )
             element_label = self._observable_property_element_label(
                 observable_property
             )
@@ -1536,9 +1536,9 @@ class ValidationInterface(DataOpsInterface, Generic[T_DataType]):
         observable_property = cache_view.require(
             observable_property_id, "ObservableProperty"
         )
-        assert isinstance(
-            observable_property, peh.ObservableProperty
-        ), f"ObservableProperty with id {observable_property_id} not found"
+        assert isinstance(observable_property, peh.ObservableProperty), (
+            f"ObservableProperty with id {observable_property_id} not found"
+        )
 
         if apply_required_check:
             required = observable_property.required
@@ -1606,9 +1606,9 @@ class ValidationInterface(DataOpsInterface, Generic[T_DataType]):
                 value_options = getattr(
                     observable_property, "value_options", None
                 )
-                assert (
-                    value_options is not None
-                ), f"ObservableProperty {observable_property} lacks `value_options` for categorical type"
+                assert value_options is not None, (
+                    f"ObservableProperty {observable_property} lacks `value_options` for categorical type"
+                )
                 assert (
                     dataset_schema_element.data_type
                     == ObservablePropertyValueType.STRING
@@ -1901,9 +1901,9 @@ class ValidationInterface(DataOpsInterface, Generic[T_DataType]):
                 logger.error(me)
                 raise ValueError(me)
             else:
-                assert (
-                    dependent_contextual_field_references is not None
-                ), "dependent_contextual_field_references in `ValidationInterface.validate` should not be None"
+                assert dependent_contextual_field_references is not None, (
+                    "dependent_contextual_field_references in `ValidationInterface.validate` should not be None"
+                )
                 assert dependent_dataset_series is not None
                 join_specs: list[JoinSpec] = []
                 required_fields_by_dataset: dict[str, set[str]] = defaultdict(
@@ -2345,9 +2345,9 @@ class DataEnrichmentInterface(DataOpsInterface, Generic[T_DataType]):
                 target_contextual_field_ref = context_index.context_lookup(
                     observation.id, observable_property.id
                 )
-                assert (
-                    target_contextual_field_ref is not None
-                ), f"Target contextual reference could not be found for property {observable_property.id} in observation {observation.id}."
+                assert target_contextual_field_ref is not None, (
+                    f"Target contextual reference could not be found for property {observable_property.id} in observation {observation.id}."
+                )
                 target_dataset_label, target_field_label = (
                     target_contextual_field_ref
                 )
@@ -2422,9 +2422,9 @@ class DataEnrichmentInterface(DataOpsInterface, Generic[T_DataType]):
                                     source_observable_property_id,
                                 )
                             )
-                            assert (
-                                source_contextual_field_ref is not None
-                            ), f"Source contextual reference could not be found for property {source_observable_property_id} in observation {source_observation_id}."
+                            assert source_contextual_field_ref is not None, (
+                                f"Source contextual reference could not be found for property {source_observable_property_id} in observation {source_observation_id}."
+                            )
                             source_dataset_label, source_field_label = (
                                 source_contextual_field_ref
                             )

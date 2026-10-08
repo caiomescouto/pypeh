@@ -32,7 +32,9 @@ session = Session()
 # Load PEH model resources (e.g. YAML configs) into cache
 session.load_persisted_cache(source="config")
 # Load tabular data as a DatasetSeries using a DataImportConfig from cache
-data_import_config = session.cache.get("<data_import_config_id>", "DataImportConfig")
+data_import_config = session.cache.get(
+    "<data_import_config_id>", "DataImportConfig"
+)
 dataset_series = session.load_tabular_dataset_series(
     source="my_data.xlsx",
     data_import_config=data_import_config,

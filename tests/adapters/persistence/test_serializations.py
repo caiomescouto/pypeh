@@ -700,9 +700,9 @@ class TestDump:
             assert "pehterms" in ns
             OP = rdflib.URIRef(ns["pehterms"] + "ObservableProperty")
             observable_properties = set(g.subjects(rdflib.RDF.type, OP))
-            assert (
-                observable_properties
-            ), "No ObservableProperty instances found"
+            assert observable_properties, (
+                "No ObservableProperty instances found"
+            )
             EL = rdflib.URIRef(ns["pehterms"] + "EntityList")
             assert (None, rdflib.RDF.type, EL) in g, "No EntityList found"
             entity_lists = list(g.subjects(rdflib.RDF.type, EL))
