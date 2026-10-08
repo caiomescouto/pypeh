@@ -627,9 +627,9 @@ class DatasetSeries(Resource, Generic[T_DataType]):
                 raise ValueError(
                     f"Observation with id {observation_id} is already registered for dataset with label {dataset_label}."
                 )
-        assert (
-            dataset_label in self.parts
-        ), f"Failed to register observation with id {observation_id}. Could not find dataset with label {dataset_label}"
+        assert dataset_label in self.parts, (
+            f"Failed to register observation with id {observation_id}. Could not find dataset with label {dataset_label}"
+        )
         self._obs_index[observation_id].add(dataset_label)
 
     def _unregister_observation(
@@ -650,9 +650,9 @@ class DatasetSeries(Resource, Generic[T_DataType]):
         element_label: str,
         allow_existing: bool = False,
     ):
-        assert isinstance(
-            element_label, str
-        ), "Context index element labels must be strings"
+        assert isinstance(element_label, str), (
+            "Context index element labels must be strings"
+        )
         key = (observation_id, observable_property_id)
         contextual_ref = (dataset_label, element_label)
         existing_ref = self._context_index.get(key)
@@ -688,9 +688,9 @@ class DatasetSeries(Resource, Generic[T_DataType]):
         for dataset_label in self.parts:
             dataset = self[dataset_label]
             assert dataset is not None
-            assert (
-                len(dataset.observation_ids) == 1
-            ), "Cannot build context index if any dataset contains more than one observation"
+            assert len(dataset.observation_ids) == 1, (
+                "Cannot build context index if any dataset contains more than one observation"
+            )
             observation_id = next(iter(dataset.observation_ids))
             assert dataset.schema is not None
             for element_label, element in dataset.schema.elements.items():
@@ -794,9 +794,9 @@ class DatasetSeries(Resource, Generic[T_DataType]):
                         section_id, "DataLayoutSection"
                     )
                     foreign_key_dataset_label = section.ui_label
-                    assert (
-                        foreign_key_dataset_label is not None
-                    ), f"Cannot create foreign_key_link, ui_label is None for section {section.id}"
+                    assert foreign_key_dataset_label is not None, (
+                        f"Cannot create foreign_key_link, ui_label is None for section {section.id}"
+                    )
                     assert dataset.schema is not None
                     dataset.schema.add_foreign_key_link(
                         element_label=element_label,
@@ -915,9 +915,9 @@ class DatasetSeries(Resource, Generic[T_DataType]):
                                 section_id, "DataLayoutSection"
                             )
                             foreign_key_dataset_label = section.ui_label
-                            assert (
-                                foreign_key_dataset_label is not None
-                            ), f"Cannot create foreign_key_link, ui_label is None for section {section.id}"
+                            assert foreign_key_dataset_label is not None, (
+                                f"Cannot create foreign_key_link, ui_label is None for section {section.id}"
+                            )
                             assert dataset.schema is not None
                             dataset.schema.add_foreign_key_link(
                                 element_label=element_label,
@@ -1047,9 +1047,9 @@ class DatasetSeries(Resource, Generic[T_DataType]):
                                 observable_property.id
                             ]
                         )
-                        assert (
-                            len(element_labels) == 1
-                        ), "Expected identifying ObservableProperty to map to one schema element"
+                        assert len(element_labels) == 1, (
+                            "Expected identifying ObservableProperty to map to one schema element"
+                        )
                         element_label = next(iter(element_labels))
                     self._register_observable_property(
                         observable_property_id=observable_property.id,
@@ -1123,9 +1123,9 @@ class DatasetSeries(Resource, Generic[T_DataType]):
                 observable_property_id,
                 element_labels,
             ) in dataset.schema._elements_by_observable_property.items():
-                assert (
-                    len(element_labels) == 1
-                ), "TEMPORARY RESTRICTION observable_properties should be unique within a dataset"
+                assert len(element_labels) == 1, (
+                    "TEMPORARY RESTRICTION observable_properties should be unique within a dataset"
+                )
                 element_label = next(iter(element_labels))
                 field_ref_dict[observable_property_id][dataset_label] = (
                     element_label
@@ -1169,12 +1169,12 @@ class DatasetSeries(Resource, Generic[T_DataType]):
     def context_lookup(
         self, observation_id: str, observable_property_id: str
     ) -> tuple[str, str]:
-        assert (
-            self._obs_index is not None
-        ), "Cannot perform lookup without observation index"
-        assert (
-            self._context_index is not None
-        ), "Cannot perform lookup without context index"
+        assert self._obs_index is not None, (
+            "Cannot perform lookup without observation index"
+        )
+        assert self._context_index is not None, (
+            "Cannot perform lookup without context index"
+        )
         ret = self._context_index.get(
             (observation_id, observable_property_id), None
         )
@@ -1220,8 +1220,7 @@ class DatasetSeries(Resource, Generic[T_DataType]):
         if args:
             if len(args) > 1:
                 raise TypeError(
-                    "update expected at most 1 arguments, "
-                    "got %d" % len(args)
+                    "update expected at most 1 arguments, got %d" % len(args)
                 )
             assert len(args) == 1
             other = dict(args[0])

@@ -14,9 +14,9 @@ class TestWrapper:
         for cls_name, entity_list_field in ENTITYLIST_MAPPING.items():
             # assert import cls from peh_model.peh
             module = importlib.import_module("peh_model.peh")
-            assert hasattr(
-                module, cls_name
-            ), f"Class {cls_name} not found in peh_model.peh"
+            assert hasattr(module, cls_name), (
+                f"Class {cls_name} not found in peh_model.peh"
+            )
 
             # assert EntityList has field entity_list_field
             assert entity_list_field in entitylist_fields, (

@@ -319,9 +319,9 @@ class Session(Generic[T_AdapterType, T_DataType]):
             "trig",
             "yaml",
         }  # TEMPORARY FIX
-        assert (
-            file_format in supported_dump_formats
-        ), f"Format {file_format} currently not supported for `Session.dump_cache`"
+        assert file_format in supported_dump_formats, (
+            f"Format {file_format} currently not supported for `Session.dump_cache`"
+        )
 
         if cache is None:
             to_serialize = self.cache
@@ -866,15 +866,15 @@ class Session(Generic[T_AdapterType, T_DataType]):
                 dependent_data=dataset_series,
                 allow_incomplete=allow_incomplete,
             )
-            assert isinstance(
-                validation_result, ValidationErrorReport
-            ), "validation_result in `Session.validate_tabular_dataset_series` should be a`ValidationErrorReport`"
+            assert isinstance(validation_result, ValidationErrorReport), (
+                "validation_result in `Session.validate_tabular_dataset_series` should be a`ValidationErrorReport`"
+            )
             validation_result_dict[dataset_label] = validation_result
 
         # Catch no data in dataset_series case
-        assert (
-            len(validation_result_dict) > 0
-        ), f"DatasetSeries with label {dataset_series.label} contains no data"
+        assert len(validation_result_dict) > 0, (
+            f"DatasetSeries with label {dataset_series.label} contains no data"
+        )
 
         return validation_result_dict
 
@@ -1022,9 +1022,9 @@ class Session(Generic[T_AdapterType, T_DataType]):
         **resource_kwargs,
     ):
         data = dict(resource_kwargs)
-        assert (
-            self.namespace_manager is not None
-        ), "No NameSpaceManager is bound to Session"
+        assert self.namespace_manager is not None, (
+            "No NameSpaceManager is bound to Session"
+        )
         identifier = self.namespace_manager.mint(
             resource_class=resource_cls,
             namespace_key=namespace_key,

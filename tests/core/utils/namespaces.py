@@ -90,9 +90,9 @@ class TestNamespaces:
         iri = nm.mint_and_set(p)
         pattern = r"^https://w3id\.org/example/id/observable-property/[0-9A-HJKMNP-TV-Z]{26}$"
 
-        assert re.match(
-            pattern, iri
-        ), f"IRI did not match expected pattern: {iri}"
+        assert re.match(pattern, iri), (
+            f"IRI did not match expected pattern: {iri}"
+        )
 
     def test_identifier_provider_delegates_to_mint(self):
         nm = NamespaceManager("https://w3id.org/peh/")

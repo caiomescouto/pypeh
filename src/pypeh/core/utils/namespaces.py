@@ -40,7 +40,7 @@ class PrefixMap:
         """Compress a full URI to a CURIE if possible."""
         for ns, prefix in self.reverse_map.items():
             if uri.startswith(ns):
-                return f"{prefix}:{uri[len(ns):]}"
+                return f"{prefix}:{uri[len(ns) :]}"
         return uri  # fallback to full URI if no prefix match
 
 

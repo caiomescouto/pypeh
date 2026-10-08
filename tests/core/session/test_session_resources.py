@@ -172,9 +172,9 @@ class TestSessionMint:
         assert isinstance(next_instance, ObservableProperty)
         assert next_instance.id == ret.id
         pattern = r"^https://w3id\.org/example/id/observable-property/[0-9A-HJKMNP-TV-Z]{26}$"
-        assert re.match(
-            pattern, ret.id
-        ), f"IRI did not match expected pattern: {ret.id}"
+        assert re.match(pattern, ret.id), (
+            f"IRI did not match expected pattern: {ret.id}"
+        )
 
 
 @pytest.mark.core

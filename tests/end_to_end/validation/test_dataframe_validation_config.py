@@ -398,9 +398,9 @@ class TestBasicValidationConfig:
         for group in groups:
             for error in group.errors:
                 message = error.message
-                assert any(
-                    p.search(message) for p in compiled
-                ), f"Unexpected error message: {message}"
+                assert any(p.search(message) for p in compiled), (
+                    f"Unexpected error message: {message}"
+                )
         assert ret.error_counts[ValidationErrorLevel.ERROR] == 2
 
     def test_allow_incomplete_reports_invalid_numeric_value(self, get_cache):
