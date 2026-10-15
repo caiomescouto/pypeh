@@ -133,6 +133,19 @@ This method currently supports parquet only. XLSX files produced by
 `dump_tabular_dataset_series(..., file_format="xlsx")` are exports for
 inspection or downstream spreadsheet workflows, not semantic persistence files.
 
+Both `output_path` and `source_paths` follow the connection's path contract:
+
+- A scheme'd URI (for example `s3://bucket/key`) is treated as absolute. Its
+  scheme must match the connection protocol, and for remote storage its bucket
+  must match the connection's root bucket; a mismatch raises `ValueError`.
+- A path without a scheme is rooted under the connection root when it is
+  relative, and passed through unchanged when it already starts with the
+  connection root.
+
+So `s3://other-bucket/key` against a connection rooted at `my-bucket` is
+rejected rather than silently re-rooted. Use a connection configured for that
+bucket, or pass a path relative to the connection root.
+
 ```python
 export_tabular_dataset_series(
     source_dataset_series: DatasetSeries,
