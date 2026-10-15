@@ -460,6 +460,13 @@ class Session(Generic[T_AdapterType, T_DataType]):
         return path
 
     @staticmethod
+    def _connection_relative_path(connection, path: str) -> str:
+        to_relative = getattr(connection, "_to_connection_relative", None)
+        if to_relative is not None:
+            return to_relative(path)
+        return path
+
+    @staticmethod
     def _connection_file_system(connection) -> Any:
         file_system = getattr(connection, "file_system", None)
         if file_system is None:
@@ -483,6 +490,14 @@ class Session(Generic[T_AdapterType, T_DataType]):
         Dataset. XLSX is an export-only format, written as one workbook with one
         worksheet per Dataset.
         If output_path is omitted, files are written to the connection root.
+
+        Returned paths are expressed as addressed by the connection: local
+        connections return absolute filesystem paths, while remote connections
+        return keys relative to the connection root (bucket *and* prefix). A
+        remote destination outside the connection root cannot be expressed as
+        a key and is returned as an absolute ``<protocol>://<bucket>/<key>``
+        URI. Either way the value can be passed back to
+        ``read_tabular_dataset_series`` on the same connection.
         """
         if file_format not in {"parquet", "xlsx"}:
             raise NotImplementedError(
@@ -501,16 +516,21 @@ class Session(Generic[T_AdapterType, T_DataType]):
             destination = self._connection_path(connection, output_path)
             file_system = self._connection_file_system(connection)
             if file_format == "xlsx":
-                return dump_dataset_series_to_excel_filesystem(
+                written_paths = dump_dataset_series_to_excel_filesystem(
                     dataset_series,
                     file_system,
                     destination,
                 )
-            return dump_dataset_series_to_parquet_filesystem(
-                dataset_series,
-                file_system,
-                destination,
-            )
+            else:
+                written_paths = dump_dataset_series_to_parquet_filesystem(
+                    dataset_series,
+                    file_system,
+                    destination,
+                )
+            return [
+                self._connection_relative_path(connection, path)
+                for path in written_paths
+            ]
 
     def export_tabular_dataset_series(
         self,

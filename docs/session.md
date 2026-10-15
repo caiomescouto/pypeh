@@ -165,7 +165,12 @@ has been imported, validated, enriched, or otherwise prepared.
 
 Use `file_format="parquet"` when you need pypeh semantic persistence. The
 parquet format writes one file per `Dataset` in the series and returns the
-paths that were written.
+paths that were written. Returned paths follow the connection's addressing:
+local connections return absolute filesystem paths, remote connections return
+keys relative to the connection root, and a remote destination outside the root
+is returned as an absolute `<protocol>://<bucket>/<key>` URI. Either way the
+list can be passed straight back to `read_tabular_dataset_series` on the same
+connection.
 
 ```python
 parquet_paths = session.dump_tabular_dataset_series(

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from contextlib import AbstractContextManager, contextmanager
-from typing import TYPE_CHECKING, Iterator
+from typing import TYPE_CHECKING, Generator
 
 import pypeh.core.models.settings as settingsmodels
 
@@ -67,7 +67,7 @@ class ConnectionManager:
         namespace: str | None = None,
         connection_label: str | None = None,
         **kwargs,
-    ) -> Iterator[HostAdapter]:
+    ) -> Generator[HostAdapter, None, None]:
         settings = self._config.get_settings(
             namespace=namespace, connection_label=connection_label
         )
