@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import pathlib
+import re
 import requests
 import urllib3
 
@@ -28,6 +29,10 @@ from pypeh.core.models.typing import T_Dataclass
 from pypeh.core.models.settings import LocalFileSettings, S3Settings
 
 logger = logging.getLogger(__name__)
+
+#: Matches an explicit URI scheme such as ``s3://`` or ``file://``. Mirrors
+#: the check fsspec uses to decide whether a path is a URL or a bare path.
+_URI_SCHEME_PATTERN = re.compile(r"^[a-zA-Z0-9]+://")
 
 if TYPE_CHECKING:
     from typing import Optional, Any, Dict, List, Generator, Type, Union
@@ -192,7 +197,11 @@ class DirectoryIO(HostAdapter):
         return str(PurePosixPath(raw).as_posix().strip("/"))
 
     def _normalize_path(self, path: Union[str, Any]) -> str:
-        raw = self._strip_protocol(str(path))
+        raw = str(path)
+
+        # A scheme'd URI is an absolute address: its bucket is not a key.
+        if self._has_uri_scheme(raw):
+            return self._normalize_uri(raw)
 
         if self.protocol == "file":
             p = Path(raw).expanduser()
@@ -217,6 +226,60 @@ class DirectoryIO(HostAdapter):
             return str(root / p)
 
         return str(p)
+
+    @staticmethod
+    def _has_uri_scheme(path: str) -> bool:
+        return _URI_SCHEME_PATTERN.match(str(path)) is not None
+
+    def _normalize_uri(self, path: str) -> str:
+        """Resolve a scheme'd URI against this connection.
+
+        A scheme'd URI is absolute: its bucket is part of the address, not a
+        key. The scheme must match the connection protocol, and for remote
+        protocols the bucket must match the connection's root bucket.
+        """
+        so = fsspec.utils.infer_storage_options(path)
+        uri_protocol = so.get("protocol")
+        if uri_protocol != self.protocol:
+            raise ValueError(
+                f"Path {path!r} uses scheme {uri_protocol!r}, but this "
+                f"connection uses protocol {self.protocol!r}."
+            )
+
+        if self.protocol == "file":
+            return str(Path(so.get("path", "")).expanduser())
+
+        target = self._uri_to_key(so)
+
+        if not self.root:
+            return target
+
+        bucket = so.get("host") or self._first_component(target)
+        root_bucket = self._first_component(self.root)
+        if not bucket or bucket != root_bucket:
+            raise ValueError(
+                f"Path {path!r} targets bucket {bucket!r}, but this "
+                f"connection is rooted at bucket {root_bucket!r} "
+                f"(root={self.root!r}). Use a connection configured for "
+                f"that bucket, or pass a path relative to the connection "
+                f"root."
+            )
+
+        return target
+
+    @staticmethod
+    def _uri_to_key(so: Dict[str, Any]) -> str:
+        """Return the scheme-less ``bucket/key`` form of parsed storage options."""
+        host = so.get("host")
+        raw = so.get("path", "")
+        if host and not raw.startswith(host):
+            raw = f"{host}{raw}"
+        return PurePosixPath(raw).as_posix().strip("/")
+
+    @staticmethod
+    def _first_component(path: str) -> str:
+        parts = PurePosixPath(path).parts
+        return parts[0] if parts else ""
 
     def _join(self, *parts: str) -> str:
         """

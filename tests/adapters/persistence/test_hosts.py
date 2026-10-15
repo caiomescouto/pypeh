@@ -177,6 +177,93 @@ class TestS3StorageProvider:
         )
 
 
+@pytest.mark.s3
+class TestDirectoryIOUriNormalization:
+    def test_scheme_uri_same_bucket_is_honored(self):
+        remote_io = DirectoryIO(root="my-bucket", protocol="s3")
+
+        assert (
+            remote_io._normalize_path("s3://my-bucket/out/a.parquet")
+            == "my-bucket/out/a.parquet"
+        )
+
+    def test_scheme_uri_foreign_bucket_raises(self):
+        remote_io = DirectoryIO(root="my-bucket", protocol="s3")
+
+        with pytest.raises(ValueError, match="other-bucket"):
+            remote_io._normalize_path("s3://other-bucket/out/a.parquet")
+
+    def test_scheme_uri_same_bucket_is_absolute_under_prefixed_root(self):
+        remote_io = DirectoryIO(root="my-bucket/base-prefix", protocol="s3")
+
+        assert (
+            remote_io._normalize_path("s3://my-bucket/other/out")
+            == "my-bucket/other/out"
+        )
+
+    def test_scheme_uri_foreign_bucket_raises_under_prefixed_root(self):
+        remote_io = DirectoryIO(root="my-bucket/base-prefix", protocol="s3")
+
+        with pytest.raises(ValueError, match="other-bucket"):
+            remote_io._normalize_path("s3://other-bucket/out")
+
+    def test_relative_path_still_roots_under_root(self):
+        remote_io = DirectoryIO(root="my-bucket/base-prefix", protocol="s3")
+
+        assert (
+            remote_io._normalize_path("out/a.parquet")
+            == "my-bucket/base-prefix/out/a.parquet"
+        )
+
+    def test_memory_scheme_uri_same_bucket_is_honored(self):
+        remote_io = DirectoryIO(
+            root="example-bucket/base-prefix", protocol="memory"
+        )
+
+        assert (
+            remote_io._normalize_path(
+                "memory://example-bucket/base-prefix/out"
+            )
+            == "example-bucket/base-prefix/out"
+        )
+
+    def test_memory_scheme_uri_foreign_bucket_raises(self):
+        remote_io = DirectoryIO(
+            root="example-bucket/base-prefix", protocol="memory"
+        )
+
+        with pytest.raises(ValueError, match="other"):
+            remote_io._normalize_path("memory://other/out")
+
+
+@pytest.mark.core
+class TestDirectoryIOSchemeMismatch:
+    def test_s3_uri_on_file_connection_raises(self, tmp_path):
+        local_io = DirectoryIO(root=str(tmp_path), protocol="file")
+
+        with pytest.raises(ValueError, match="scheme 's3'"):
+            local_io._normalize_path("s3://other-bucket/out")
+
+    def test_file_uri_is_treated_as_absolute(self, tmp_path):
+        local_io = DirectoryIO(root=str(tmp_path), protocol="file")
+        target = tmp_path / "abs" / "a.parquet"
+        # Build a portable file URI: ``file:///C:/...`` on Windows and
+        # ``file:///tmp/...`` on POSIX.
+        uri = "file:///" + target.as_posix().lstrip("/")
+
+        assert local_io._normalize_path(uri) == str(target)
+
+    def test_relative_and_absolute_paths_are_unchanged(self, tmp_path):
+        local_io = DirectoryIO(root=str(tmp_path), protocol="file")
+
+        assert local_io._normalize_path("out/a.parquet") == str(
+            tmp_path / "out" / "a.parquet"
+        )
+
+        absolute = str(tmp_path / "abs" / "out" / "a.parquet")
+        assert local_io._normalize_path(absolute) == absolute
+
+
 @pytest.mark.core
 class TestDatabaseProvider:
     def test_basic(self):
