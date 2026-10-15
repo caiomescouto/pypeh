@@ -116,6 +116,14 @@ the Polars dataframe from `dataset.data`. URI-like dataset labels are shortened
 to their final URI segment for worksheet names. XLSX export requires the
 `xlsxwriter` dependency and cannot be read back as a semantic `DatasetSeries`.
 
+`dump_tabular_dataset_series` returns the written paths addressed the way the
+connection addresses them: local connections return absolute filesystem paths,
+and remote connections return keys relative to the connection root (bucket
+*and* prefix), so the list can be passed straight back to
+`read_tabular_dataset_series` on the same connection. A remote destination
+outside the connection root cannot be expressed as a key and is returned as an
+absolute `<protocol>://<bucket>/<key>` URI instead.
+
 ```python
 read_tabular_dataset_series(
     source_paths: Sequence[str],

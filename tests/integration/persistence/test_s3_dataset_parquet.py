@@ -120,11 +120,7 @@ class TestS3Integration:
             connection_label="data",
         )
 
-        assert source_paths == [
-            "pypeh-parquet-test/project-prefix/SAMPLE.parquet",
-            "pypeh-parquet-test/project-prefix/LAB.parquet",
-        ]
-        assert all(not path.startswith("s3://") for path in source_paths)
+        assert source_paths == ["SAMPLE.parquet", "LAB.parquet"]
 
         response = moto_s3_client.list_objects_v2(
             Bucket="pypeh-parquet-test",
@@ -151,3 +147,37 @@ class TestS3Integration:
         assert isinstance(lab_dataset, Dataset)
         assert lab_dataset.data is not None
         assert lab_dataset.data.shape == (2, 2)
+
+    def test_session_dataset_series_dump_outside_prefix_roundtrips(
+        self,
+        s3_session,
+        moto_s3_client,
+        dataset_series,
+    ):
+        source_paths = s3_session.dump_tabular_dataset_series(
+            dataset_series=dataset_series,
+            output_path="s3://pypeh-parquet-test/other/out",
+            connection_label="data",
+        )
+
+        assert source_paths == [
+            "s3://pypeh-parquet-test/other/out/SAMPLE.parquet",
+            "s3://pypeh-parquet-test/other/out/LAB.parquet",
+        ]
+
+        response = moto_s3_client.list_objects_v2(
+            Bucket="pypeh-parquet-test",
+            Prefix="other/out/",
+        )
+        assert {obj["Key"] for obj in response["Contents"]} == {
+            "other/out/SAMPLE.parquet",
+            "other/out/LAB.parquet",
+        }
+
+        loaded = s3_session.read_tabular_dataset_series(
+            source_paths=source_paths,
+            file_format="parquet",
+            connection_label="data",
+        )
+
+        assert set(loaded.parts) == {"SAMPLE", "LAB"}

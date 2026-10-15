@@ -117,7 +117,7 @@ class TestSessionParquet:
         assert lab_data is not None
         assert lab_data.shape == (2, 2)
 
-    def test_session_dump_s3_like_paths_are_filesystem_relative(
+    def test_session_dump_s3_like_paths_are_connection_relative(
         self, s3_like_parquet_session, dataset_series
     ):
         session, connection = s3_like_parquet_session
@@ -127,13 +127,10 @@ class TestSessionParquet:
             connection_label="data",
         )
 
-        assert source_paths == [
-            "example-bucket/base-prefix/SAMPLE.parquet",
-            "example-bucket/base-prefix/LAB.parquet",
-        ]
-        assert all(not path.startswith("s3://") for path in source_paths)
+        assert source_paths == ["SAMPLE.parquet", "LAB.parquet"]
         assert all(
-            connection.file_system.exists(path) for path in source_paths
+            connection.file_system.exists(connection._normalize_path(path))
+            for path in source_paths
         )
 
     def test_session_s3_like_dump_paths_roundtrip_through_session_read(
@@ -151,6 +148,58 @@ class TestSessionParquet:
             connection_label="data",
         )
 
+        assert set(loaded.parts) == {"SAMPLE", "LAB"}
+
+    def test_session_s3_like_dump_outside_prefix_roundtrips(
+        self, s3_like_parquet_session, dataset_series
+    ):
+        session, connection = s3_like_parquet_session
+
+        source_paths = session.dump_tabular_dataset_series(
+            dataset_series,
+            output_path="memory://example-bucket/other/out",
+            connection_label="data",
+        )
+
+        assert source_paths == [
+            "memory://example-bucket/other/out/SAMPLE.parquet",
+            "memory://example-bucket/other/out/LAB.parquet",
+        ]
+        assert all(
+            connection.file_system.exists(connection._normalize_path(path))
+            for path in source_paths
+        )
+
+        loaded = session.read_tabular_dataset_series(
+            source_paths,
+            file_format="parquet",
+            connection_label="data",
+        )
+        assert set(loaded.parts) == {"SAMPLE", "LAB"}
+
+    def test_session_s3_like_root_collision_with_query_chars_roundtrips(
+        self, dataset_series
+    ):
+        session = Session(default_connection=None)
+        connection = DirectoryIO(root="bkt", protocol="memory")
+        session.connection_manager = _SingleConnectionManager(connection)
+
+        source_paths = session.dump_tabular_dataset_series(
+            dataset_series,
+            output_path="bkt/bkt/out?version=1",
+            connection_label="data",
+        )
+
+        assert source_paths == [
+            "memory://bkt/bkt/out?version=1/SAMPLE.parquet",
+            "memory://bkt/bkt/out?version=1/LAB.parquet",
+        ]
+
+        loaded = session.read_tabular_dataset_series(
+            source_paths,
+            file_format="parquet",
+            connection_label="data",
+        )
         assert set(loaded.parts) == {"SAMPLE", "LAB"}
 
     def test_session_read_dataset_series_requires_explicit_files(
@@ -199,10 +248,8 @@ class TestSessionExcel:
             connection_label="data",
         )
 
-        assert source_paths == [
-            "example-bucket/base-prefix/session_series.xlsx"
-        ]
-        assert all(not path.startswith("s3://") for path in source_paths)
+        assert source_paths == ["session_series.xlsx"]
         assert all(
-            connection.file_system.exists(path) for path in source_paths
+            connection.file_system.exists(connection._normalize_path(path))
+            for path in source_paths
         )

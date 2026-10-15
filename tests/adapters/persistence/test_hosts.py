@@ -235,6 +235,26 @@ class TestDirectoryIOUriNormalization:
         with pytest.raises(ValueError, match="other"):
             remote_io._normalize_path("memory://other/out")
 
+    @pytest.mark.parametrize(
+        "uri, expected",
+        [
+            ("memory://bkt/out?version=1/a", "bkt/out?version=1/a"),
+            ("memory://bkt/out#v1/a?b", "bkt/out#v1/a?b"),
+            ("memory://bkt/out?", "bkt/out?"),
+        ],
+    )
+    def test_memory_scheme_uri_keeps_literal_query_delimiters(
+        self, uri, expected
+    ):
+        remote_io = DirectoryIO(root="bkt", protocol="memory")
+
+        assert remote_io._normalize_path(uri) == expected
+
+    def test_memory_scheme_root_keeps_literal_query_delimiters(self):
+        remote_io = DirectoryIO(root="memory://bkt/pfx?v=1", protocol="memory")
+
+        assert remote_io.root == "bkt/pfx?v=1"
+
 
 @pytest.mark.core
 class TestDirectoryIOSchemeMismatch:
@@ -262,6 +282,88 @@ class TestDirectoryIOSchemeMismatch:
 
         absolute = str(tmp_path / "abs" / "out" / "a.parquet")
         assert local_io._normalize_path(absolute) == absolute
+
+
+@pytest.mark.core
+class TestDirectoryIOConnectionRelative:
+    def test_remote_path_under_root_becomes_key(self):
+        remote_io = DirectoryIO(
+            root="my-test-bucket/base-prefix",
+            protocol="memory",
+        )
+
+        assert (
+            remote_io._to_connection_relative(
+                "my-test-bucket/base-prefix/out/a.parquet"
+            )
+            == "out/a.parquet"
+        )
+
+    def test_remote_path_outside_root_keeps_absolute_uri(self):
+        remote_io = DirectoryIO(
+            root="my-test-bucket/base-prefix",
+            protocol="memory",
+        )
+
+        assert (
+            remote_io._to_connection_relative("my-test-bucket/other/a.parquet")
+            == "memory://my-test-bucket/other/a.parquet"
+        )
+
+    def test_scheme_is_preserved(self):
+        remote_io = DirectoryIO(
+            root="my-test-bucket/base-prefix",
+            protocol="memory",
+        )
+
+        assert (
+            remote_io._to_connection_relative(
+                "memory://my-test-bucket/other/a.parquet"
+            )
+            == "memory://my-test-bucket/other/a.parquet"
+        )
+
+    @pytest.mark.parametrize(
+        "written",
+        [
+            "my-test-bucket/base-prefix/out/a.parquet",
+            "my-test-bucket/other/a.parquet",
+        ],
+    )
+    def test_connection_relative_roundtrips(self, written):
+        remote_io = DirectoryIO(
+            root="my-test-bucket/base-prefix",
+            protocol="memory",
+        )
+
+        relative = remote_io._to_connection_relative(written)
+
+        assert remote_io._normalize_path(relative) == written
+
+    @pytest.mark.parametrize(
+        "root, written",
+        [
+            ("bkt", "bkt/bkt/a.parquet"),
+            ("bkt/pfx", "bkt/pfx/bkt/pfx/a.parquet"),
+            ("bkt", "bkt/bkt/out?version=1/SAMPLE.parquet"),
+            ("bkt", "bkt/bkt/out#v1/SAMPLE.parquet"),
+            ("bkt", "bkt/bkt/out?a#b/SAMPLE.parquet"),
+        ],
+    )
+    def test_key_starting_with_root_falls_back_to_uri(self, root, written):
+        remote_io = DirectoryIO(root=root, protocol="memory")
+
+        relative = remote_io._to_connection_relative(written)
+
+        assert relative == f"memory://{written}"
+        assert remote_io._normalize_path(relative) == written
+
+    def test_local_path_stays_absolute(self, tmp_path):
+        local_io = DirectoryIO(root=str(tmp_path), protocol="file")
+
+        written = str(tmp_path / "out" / "a.parquet")
+
+        assert local_io._to_connection_relative(written) == written
 
 
 @pytest.mark.core

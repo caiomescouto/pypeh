@@ -185,15 +185,17 @@ class DirectoryIO(HostAdapter):
         if not root:
             return None
 
-        raw = self._strip_protocol(str(root))
+        raw = str(root)
 
         if self.protocol == "file":
-            p = Path(raw).expanduser()
+            p = Path(self._strip_protocol(raw)).expanduser()
             if not p.is_absolute():
                 raise ValueError(f"DirectoryIO root must be absolute: {root}")
             return str(p)
 
-        # Remote filesystem (S3, etc.)
+        # Remote filesystem (S3, etc.): keep literal '?' / '#' in the key.
+        if self._has_uri_scheme(raw):
+            raw = self._split_uri(raw)[1]
         return str(PurePosixPath(raw).as_posix().strip("/"))
 
     def _normalize_path(self, path: Union[str, Any]) -> str:
@@ -227,6 +229,46 @@ class DirectoryIO(HostAdapter):
 
         return str(p)
 
+    def _to_connection_relative(self, path: Union[str, Any]) -> str:
+        """Express an absolute path as addressed by this connection.
+
+        This is the inverse of :meth:`_normalize_path`:
+
+        - local filesystems return the absolute filesystem path (an absolute
+          path is already unambiguous and round-trips through
+          ``_normalize_path``);
+        - remote connections return a key relative to the connection root
+          (bucket *and* prefix), so callers can reconstruct the canonical
+          ``<protocol>://<bucket>/<key>`` URI themselves;
+        - a remote path that falls outside the connection root cannot be
+          expressed as a key, and neither can an inside-root path whose
+          derived key would not survive re-normalization (e.g. a key that
+          itself begins with the root). Both are returned as an absolute
+          ``<protocol>://<bucket>/<key>`` URI rather than being silently
+          re-rooted or mis-addressed.
+        """
+        raw = str(path)
+
+        if self._has_uri_scheme(raw):
+            return raw
+
+        if self.protocol == "file":
+            return str(Path(raw).expanduser())
+
+        p = PurePosixPath(raw)
+        if not self.root:
+            return str(p)
+
+        root = PurePosixPath(self.root)
+        if p.is_relative_to(root):
+            key = p.relative_to(root).as_posix()
+            # A key that itself starts with the root would be read back as
+            # already rooted by _normalize_path; fall back to the URI form.
+            if self._normalize_path(key) == p.as_posix():
+                return key
+
+        return f"{self.protocol}://{p.as_posix()}"
+
     @staticmethod
     def _has_uri_scheme(path: str) -> bool:
         return _URI_SCHEME_PATTERN.match(str(path)) is not None
@@ -238,8 +280,7 @@ class DirectoryIO(HostAdapter):
         key. The scheme must match the connection protocol, and for remote
         protocols the bucket must match the connection's root bucket.
         """
-        so = fsspec.utils.infer_storage_options(path)
-        uri_protocol = so.get("protocol")
+        uri_protocol, remainder = self._split_uri(path)
         if uri_protocol != self.protocol:
             raise ValueError(
                 f"Path {path!r} uses scheme {uri_protocol!r}, but this "
@@ -247,14 +288,18 @@ class DirectoryIO(HostAdapter):
             )
 
         if self.protocol == "file":
+            # Local paths do not carry query/fragment delimiters, so fsspec's
+            # URL parsing is safe here; only object-store keys need literal
+            # '?' / '#' preserved (see :meth:`_split_uri`).
+            so = fsspec.utils.infer_storage_options(path)
             return str(Path(so.get("path", "")).expanduser())
 
-        target = self._uri_to_key(so)
+        target = PurePosixPath(remainder).as_posix().strip("/")
 
         if not self.root:
             return target
 
-        bucket = so.get("host") or self._first_component(target)
+        bucket = self._first_component(target)
         root_bucket = self._first_component(self.root)
         if not bucket or bucket != root_bucket:
             raise ValueError(
@@ -268,13 +313,15 @@ class DirectoryIO(HostAdapter):
         return target
 
     @staticmethod
-    def _uri_to_key(so: Dict[str, Any]) -> str:
-        """Return the scheme-less ``bucket/key`` form of parsed storage options."""
-        host = so.get("host")
-        raw = so.get("path", "")
-        if host and not raw.startswith(host):
-            raw = f"{host}{raw}"
-        return PurePosixPath(raw).as_posix().strip("/")
+    def _split_uri(path: str) -> tuple[str, str]:
+        """Split ``<protocol>://<rest>`` without URL query/fragment parsing.
+
+        Object-store keys may contain literal ``?`` and ``#``; treating them
+        as URL delimiters would silently truncate the key. ``<rest>`` is
+        therefore returned verbatim as the ``bucket/key`` address.
+        """
+        protocol, _, rest = path.partition("://")
+        return protocol.lower(), rest
 
     @staticmethod
     def _first_component(path: str) -> str:
