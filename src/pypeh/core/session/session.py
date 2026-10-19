@@ -42,6 +42,7 @@ from pypeh.core.models.dataset_series_mapping import (
     ObservationAlignment,
 )
 from pypeh.core.models.internal_data_layout import DatasetSeries, Dataset
+from pypeh.core.models.metadata_dto import StudyMetadataConfig
 from pypeh.core.interfaces.dataops import (
     AggregationInterface,
     DataOpsInterface,
@@ -50,6 +51,7 @@ from pypeh.core.interfaces.dataops import (
     LabelCollisionStrategy,
     ValidationInterface,
 )
+from pypeh.core.interfaces.metadata import MetadataInterface
 from pypeh.adapters.persistence.dataset_parquet import (
     dump_dataset_series_to_parquet_filesystem,
     load_dataset_series_from_parquet_filesystem,
@@ -228,6 +230,9 @@ class Session(Generic[T_AdapterType, T_DataType]):
                 self._adapter_mapping[interface_functionality] = adapter
             case "aggregation":
                 adapter = AggregationInterface.get_default_adapter_class()
+                self._adapter_mapping[interface_functionality] = adapter
+            case "metadata":
+                adapter = MetadataInterface.get_default_adapter_class()
                 self._adapter_mapping[interface_functionality] = adapter
             case _:
                 raise NotImplementedError(
@@ -780,6 +785,44 @@ class Session(Generic[T_AdapterType, T_DataType]):
                 normalized_source_paths,
                 validate_foreign_keys=validate_foreign_keys,
             )
+
+    def create_study_metadata(
+        self,
+        dataset_series: DatasetSeries,
+        data_import_config: peh.DataImportConfig,
+        metadata_config: StudyMetadataConfig | None = None,
+        validation_report: ValidationErrorReportCollection | None = None,
+        adapter_label: str = "metadata",
+    ) -> dict:
+        """
+        Build the study-metadata tree for an imported DatasetSeries.
+
+        Starting from the `DataImportConfig` the service walks the PEH
+        resources in the session cache (observations, observation
+        groups, study, projects, population) and combines them with
+        the imported `DatasetSeries` (datasets, variables, dtypes)
+        into a nested dictionary:
+
+            study / projects / observation_groups /
+            observations (variable catalogue) / datasets / provenance
+
+        Sections are gated through `metadata_config`
+        (`StudyMetadataConfig`); disabled sections are omitted from the
+        tree. A `ValidationErrorReportCollection` can be attached to
+        the provenance section but is never produced here — validation
+        remains a separate step.
+        """
+        if metadata_config is None:
+            metadata_config = StudyMetadataConfig()
+        adapter = self.get_adapter(adapter_label)
+        assert isinstance(adapter, MetadataInterface)
+        return adapter.build_study_metadata(
+            dataset_series=dataset_series,
+            data_import_config=data_import_config,
+            metadata_config=metadata_config,
+            cache_view=CacheContainerView(self.cache),
+            validation_report=validation_report,
+        )
 
     def get_resource(
         self, resource_identifier: str, resource_type: str

@@ -1,0 +1,821 @@
+# =============================================================================
+# pypeh metadata demo — EVERY PEH object that is reachable today
+# =============================================================================
+#
+# Load with:
+#   session.load_persisted_cache("config/peh_demo.yaml")
+#
+# The file is organised by *reachability tier* (see the analysis):
+#
+#   TIER 1  pypeh traverses these for you
+#          -> ObservableProperty (+ value options / metadata / validation designs)
+#          -> ObservationDesign (+ property specifications + calculation designs)
+#          -> Observation / DerivedObservation
+#          -> DataLayout -> DataLayoutSection -> DataLayoutElement
+#          -> DataImportConfig / DataExportConfig / ObservationGroup
+#          -> ObservationAlignment (+ assemblies)
+#          -> DataFilter (+ filter expressions) on the extract path
+#
+#   TIER 3  loadable from YAML, but NO pypeh code path ever looks at them:
+#          you must traverse the ids yourself
+#          -> ObservablePropertyMetadataField  (decodes value_metadata)
+#          -> Grouping                         (variable panels)
+#          -> BioChemEntitySubClass / MatrixSubClass / IndicatorSubClass
+#          -> Project / Study / StudyEntity / PhysicalEntity / Stakeholder
+#          -> ObservationResult / ObservedValue (+ QualityData, ProvenanceData)
+#          -> DataRequest
+#
+#   NOT REACHABLE AT ALL (no EntityList slot, verified):
+#          BioChemEntity, Matrix, Indicator, Sample, Person, Geolocation,
+#          Environment, HomeEnvironment, WorkEnvironment, StudyPopulation,
+#          SampleCollection, StudySubject, StudySubjectGroup, DataStakeholder,
+#          ResearchObjective, ProcessingAction, ProcessingStep, IAdoptVariable
+#
+# The interesting bit: Tier 3 metabolite/matrix semantics hang off
+# `ObservableProperty.has_observable_property_type` -> IndicatorSubClass ->
+# MatrixSubClass / BioChemEntitySubClass. pypeh never follows that link, but
+# everything needed is right here in the cache.
+# =============================================================================
+
+
+# =============================================================================
+# TIER 3a — metadata field vocabulary
+# Without these, ObservableProperty.value_metadata is just a list of opaque
+# (field, value) id/value pairs.
+# =============================================================================
+metadata_fields:
+- id: id_line
+  value_type: integer
+  description: Line number of the variable in the source codebook
+- id: cb_source
+  value_type: string
+  description: Assay family / data collection the variable originates from
+- id: unit_display
+  value_type: string
+  description: Human readable unit as printed in the source codebook
+- id: value_status
+  value_type: string
+  description: Which status column (raw / LOD / LOQ / imputed) a value came from
+
+
+# =============================================================================
+# TIER 3b — variable groupings (panels)
+# =============================================================================
+groupings:
+- id: peh:GROUPING_LIPID_PANEL
+  short_name: lipid_panel
+  ui_label: Lipid panel
+  description: >
+    Lipid variables quantified in the same lab assay batch. Referenced from
+    ObservableProperty.grouping_id_list and BioChemEntitySubClass.group_labels.
+  translations:
+  - property_name: ui_label
+    language: en
+    translated_value: Lipid panel
+
+
+# =============================================================================
+# TIER 3c — the analyte chain (the "biochemical entity" metadata)
+#
+#   BioChemEntitySubClass  <- what is measured (CHEBI-anchored template)
+#   MatrixSubClass         <- medium / matrix (blood, serum, ...)
+#   IndicatorSubClass      <- ties the two together, and is what
+#                              ObservableProperty.has_observable_property_type
+#                              points at.
+#
+# These are owl:Class templates, not per-study entity instances: peh_model's
+# EntityList has no slot for BioChemEntity/Matrix instances.
+# =============================================================================
+biochementity_subclasses:
+- id: peh:BCE_CHOLESTEROL
+  short_name: cholesterol
+  ui_label: Cholesterol
+  description: >
+    A sterol lipid and a component of the cell membrane of every animal cell;
+    also a precursor of steroid hormones and bile acids.
+  aliases:
+  - total cholesterol
+  exact_matches:
+  - CHEBI:16288
+  molweight_grampermol: 386.65
+  current_validation_status: validated
+  group_labels:
+  - sterol
+  - lipid
+  grouping_id_list:
+  - peh:GROUPING_LIPID_PANEL
+  has_role:
+  - peh:ROLE_MEASURED_ANALYTE
+- id: peh:BCE_HDL_CHOLESTEROL
+  short_name: hdl_cholesterol
+  ui_label: HDL cholesterol
+  description: The cholesterol content of the high density lipoprotein fraction.
+  exact_matches:
+  - CHEBI:16289
+  molweight_grampermol: 386.65
+  current_validation_status: validated
+  group_labels:
+  - lipoprotein
+- id: peh:BCE_TRIGLYCERIDE
+  short_name: triglyceride
+  ui_label: Triglyceride
+  description: Any triester of glycerol with three fatty acids.
+  exact_matches:
+  - CHEBI:18059
+  molweight_grampermol: 885.4
+  current_validation_status: validated
+  is_metabolite_of:
+  - peh:BCE_CHOLESTEROL
+  group_labels:
+  - glycerolipid
+
+matrix_subclasses:
+- id: peh:MATRIX_BLOOD_WHOLE_BLOOD
+  short_name: bwb
+  ui_label: Blood (whole blood)
+  description: Whole blood matrix, the substrate for the lab assays.
+  context_aliases:
+  - context: matrix
+    alias: bwb
+- id: peh:MATRIX_SERUM
+  short_name: serum
+  ui_label: Serum
+  description: The cell-free fraction of coagulated blood.
+
+indicator_subclasses:
+- id: peh:IND_TOTAL_CHOLESTEROL
+  short_name: tc
+  ui_label: Total cholesterol
+  description: Sum of cholesterol contained in all lipoproteins of the sample.
+  indicator_type: observation
+  quantity_kind: http://qudt.org/vocab/quantitykind/Mass
+  matrix: peh:MATRIX_BLOOD_WHOLE_BLOOD
+  biochementity: peh:BCE_CHOLESTEROL
+  grouping_id_list:
+  - peh:GROUPING_LIPID_PANEL
+  relevant_observable_entity_types:
+  - sample
+  suggester: https://orcid.org/0000-0002-1825-0097
+  constraints:
+  - constraint_id: minimum_plausible_concentration
+    constrains: peh:IND_TOTAL_CHOLESTEROL
+- id: peh:IND_HDL_CHOLESTEROL
+  short_name: hdl_c
+  ui_label: HDL cholesterol
+  indicator_type: observation
+  quantity_kind: http://qudt.org/vocab/quantitykind/Mass
+  matrix: peh:MATRIX_SERUM
+  biochementity: peh:BCE_HDL_CHOLESTEROL
+  grouping_id_list:
+  - peh:GROUPING_LIPID_PANEL
+  relevant_observable_entity_types:
+  - sample
+- id: peh:IND_TRIGLYCERIDES
+  short_name: tg
+  ui_label: Triglycerides
+  indicator_type: observation
+  quantity_kind: http://qudt.org/vocab/quantitykind/Mass
+  matrix: peh:MATRIX_SERUM
+  biochementity: peh:BCE_TRIGLYCERIDE
+  relevant_observable_entity_types:
+  - sample
+
+
+# =============================================================================
+# TIER 1 — ObservableProperty (the column definitions)
+# =============================================================================
+observable_properties:
+- id: id_sample
+  short_name: id_sample
+  name: demo|sample|id_sample
+  ui_label: Sample identifier
+  description: Unique identifier of the analysed sample.
+  remark: Used as the identifying ObservableProperty in every sample observation.
+  value_type: string
+  required: true
+  immutable: true
+  zeroallowed: false
+  observation_result_type: measurement
+  relevant_observation_types:
+  - sampling
+  - metadata
+  value_metadata:
+  - field: id_line
+    value: '1'
+  context_aliases:
+  - context: sample_id
+    alias: sid
+    property_name: ui_label
+
+- id: age_birth_m
+  short_name: age_birth_m
+  name: demo|person|age_birth_m
+  ui_label: Age at birth (months)
+  description: Age of the participant in months at the time of sample collection.
+  value_type: integer
+  min_value: '0'
+  max_value: '1440'
+  unit: Month
+  quantity_kind: http://qudt.org/vocab/quantitykind/Time
+  observation_result_type: measurement
+  value_metadata:
+  - field: id_line
+    value: '2'
+  - field: unit_display
+    value: months
+  translations:
+  - property_name: ui_label
+    language: en
+    translated_value: Age at birth (months)
+
+- id: sex
+  short_name: sex
+  name: demo|person|sex
+  ui_label: Sex
+  description: Self-reported sex of the participant.
+  value_type: string
+  categorical: true
+  multivalued: false
+  required: true
+  observation_result_type: measurement
+  value_options:
+  - key: '1'
+    value: male
+    label: Male
+  - key: '2'
+    value: female
+    label: Female
+  - key: '9'
+    value: not reported
+    label: Not reported
+  value_metadata:
+  - field: id_line
+    value: '3'
+  context_aliases:
+  - context: sex
+    alias: s
+    property_name: ui_label
+
+- id: chol
+  short_name: chol
+  name: demo|bloodwholeblood|chol
+  ui_label: Total cholesterol
+  description: >
+    Total cholesterol concentration quantified in whole blood, in micromoles
+    per litre.
+  remark: >
+    Measured values (X) are given; -10 = measurement was planned but the sample
+    could not be measured; -1 = X < LOD; -2 = LOD <= X < LOQ.
+  value_type: decimal
+  unit: MicroGM-PER-L
+  quantity_kind: http://qudt.org/vocab/quantitykind/Mass
+  zeroallowed: true
+  significantdecimals: 6
+  immutable: false
+  observation_result_type: measurement
+  relevant_observation_types:
+  - sampling
+  grouping_id_list:
+  - peh:GROUPING_LIPID_PANEL
+  # ---- THE TIER 3 HOOK: analyte / matrix semantics live behind this id ----
+  has_observable_property_type:
+  - peh:IND_TOTAL_CHOLESTEROL
+  value_metadata:
+  - field: id_line
+    value: '20'
+  - field: cb_source
+    value: blood markers
+  - field: unit_display
+    value: ug/L
+  - field: value_status
+    value: chol
+  validation_designs:
+  - validation_name: chol_must_be_numeric
+    validation_error_level: error
+    validation_error_message_template: "chol is not numeric"
+    validation_expression:
+      validation_command: is_not_null
+  - validation_name: chol_coding_flag_allowed
+    validation_error_level: warning
+    validation_error_message_template: "chol contains an unexpected status code"
+    validation_expression:
+      validation_command: disjunction
+      validation_arg_expressions:
+      - validation_command: is_less_than
+        validation_arg_values:
+        - '2.5'
+      - validation_command: is_equal_to
+        validation_arg_values:
+        - '-1'
+      - validation_command: is_equal_to
+        validation_arg_values:
+        - '-2'
+      - validation_command: is_equal_to
+        validation_arg_values:
+        - '-10'
+
+- id: chol_lod
+  short_name: chol_lod
+  ui_label: Total cholesterol LOD
+  description: Limit of detection of the total cholesterol assay.
+  value_type: float
+  unit: MicroGM-PER-L
+  observation_result_type: control
+  value_metadata:
+  - field: id_line
+    value: '21'
+  - field: value_status
+    value: lod
+
+- id: chol_loq
+  short_name: chol_loq
+  ui_label: Total cholesterol LOQ
+  description: Limit of quantification of the total cholesterol assay.
+  value_type: float
+  unit: MicroGM-PER-L
+  observation_result_type: control
+  value_metadata:
+  - field: id_line
+    value: '22'
+  - field: value_status
+    value: loq
+
+- id: hdl
+  short_name: hdl
+  ui_label: HDL cholesterol
+  description: HDL cholesterol concentration in serum.
+  value_type: decimal
+  unit: MicroGM-PER-L
+  zeroallowed: true
+  significantdecimals: 6
+  observation_result_type: measurement
+  grouping_id_list:
+  - peh:GROUPING_LIPID_PANEL
+  has_observable_property_type:
+  - peh:IND_HDL_CHOLESTEROL
+  value_metadata:
+  - field: id_line
+    value: '23'
+  - field: cb_source
+    value: blood markers
+
+- id: trigl
+  short_name: trigl
+  ui_label: Triglycerides
+  description: Triglyceride concentration in serum.
+  value_type: decimal
+  unit: MicroGM-PER-L
+  zeroallowed: true
+  significantdecimals: 6
+  observation_result_type: measurement
+  has_observable_property_type:
+  - peh:IND_TRIGLYCERIDES
+  value_metadata:
+  - field: id_line
+    value: '24'
+  - field: cb_source
+    value: blood markers
+
+- id: chol_imputed
+  short_name: chol_imputed
+  ui_label: chol_imputed
+  description: >
+    LOD/LOQ-corrected total cholesterol: below-quantification status codes are
+    replaced by the limit of quantification.
+  value_type: decimal
+  unit: MicroGM-PER-L
+  observation_result_type: calculation
+  value_metadata:
+  - field: value_status
+    value: imputed
+
+- id: chol_mean
+  short_name: chol_mean
+  ui_label: chol_mean
+  description: Arithmetic mean of the LOD/LOQ-corrected total cholesterol per stratum.
+  value_type: decimal
+  unit: MicroGM-PER-L
+  observation_result_type: calculation
+
+
+# =============================================================================
+# TIER 1 — ObservationDesign (which variables belong to which observation)
+# =============================================================================
+observation_designs:
+- id: peh:OD_SAMPLE_METADATA
+  short_name: od_sample_metadata
+  ui_label: Sample metadata design
+  description: Subject level metadata recorded once per participant.
+  observation_result_type: measurement
+  observable_entity_type: person
+  observable_entity_id_list:
+  - peh:PE_PERSON_0001
+  observable_property_specifications:
+  - observable_property: id_sample
+    specification_category: identifying
+  - observable_property: sex
+    specification_category: required
+  - observable_property: age_birth_m
+    specification_category: required
+
+- id: peh:OD_LAB_ASSAYS
+  short_name: od_lab_assays
+  ui_label: Lab assay design
+  description: Lipid panel measured on every sample.
+  observation_result_type: measurement
+  observable_entity_type: sample
+  observable_entity_id_list:
+  - peh:SE_SAMPLE_0001
+  observable_property_specifications:
+  - observable_property: id_sample
+    specification_category: identifying
+  - observable_property: chol
+    specification_category: optional
+  - observable_property: chol_lod
+    specification_category: optional
+  - observable_property: chol_loq
+    specification_category: optional
+  - observable_property: hdl
+    specification_category: optional
+  - observable_property: trigl
+    specification_category: optional
+
+- id: peh:OD_LAB_ENRICHED
+  short_name: od_lab_enriched
+  ui_label: Enriched lab design
+  description: Adds one derived variable to the lab assay observation.
+  observation_result_type: calculation
+  observable_entity_type: sample
+  observable_property_specifications:
+  - observable_property: id_sample
+    specification_category: identifying
+  - observable_property: chol_imputed
+    specification_category: derived
+    calculation_design:
+      calculation_name: abs_corrected_cholesterol
+      calculation_implementation:
+        function_name: compehndly.entrypoints.medium_bound_imputation
+        function_kwargs:
+        - mapping_name: measurement
+          contextual_field_reference:
+            dataset_label: peh:OBS_LAB_ASSAYS
+            field_label: chol
+        - mapping_name: loq
+          contextual_field_reference:
+            dataset_label: peh:OBS_LAB_ASSAYS
+            field_label: chol_loq
+        - mapping_name: lod
+          contextual_field_reference:
+            dataset_label: peh:OBS_LAB_ASSAYS
+            field_label: chol_lod
+        function_results:
+        - mapping_name: chol_imputed
+          value_type: decimal
+          unit: MicroGM-PER-L
+          round_decimals: 3
+
+- id: peh:OD_SUMMARY
+  short_name: od_summary
+  ui_label: Summary design
+  description: Study level summary of the enriched cholesterol variable.
+  observation_result_type: calculation
+  observable_entity_type: sample
+  observable_property_specifications:
+  - observable_property: id_sample
+    specification_category: identifying
+  - observable_property: chol_mean
+    specification_category: derived
+    calculation_design:
+      calculation_name: mean_corrected_cholesterol
+      calculation_implementation:
+        function_name: pypeh.adapters.aggregation.polars_adapter.statistics.statistics_mean
+        function_kwargs:
+        # aggregation: exactly one contextual ref WITHOUT mapping_name is the
+        # primary source value column
+        - contextual_field_reference:
+            dataset_label: peh:OBS_LAB_ENRICHED
+            field_label: chol_imputed
+        function_results:
+        - mapping_name: chol_mean
+          value_type: decimal
+          unit: MicroGM-PER-L
+
+
+# =============================================================================
+# TIER 1 — Observations (base + derived)
+# =============================================================================
+observations:
+- id: peh:OBS_SAMPLE_METADATA
+  short_name: obs_sample_metadata
+  ui_label: SAMPLE_METADATA
+  description: Participant level metadata of the demo cohort.
+  observation_type: metadata
+  observation_design: peh:OD_SAMPLE_METADATA
+- id: peh:OBS_LAB_ASSAYS
+  short_name: obs_lab_assays
+  ui_label: LAB_ASSAYS
+  description: Lipid panel of every collected sample.
+  observation_type: sampling
+  observation_design: peh:OD_LAB_ASSAYS
+
+derived_observations:
+- id: peh:OBS_LAB_ENRICHED
+  short_name: obs_lab_enriched
+  ui_label: LAB_ASSAYS_ENRICHED
+  description: Lab assays plus the LOD/LOQ corrected cholesterol variable.
+  was_derived_from: peh:OBS_LAB_ASSAYS
+  observation_design: peh:OD_LAB_ENRICHED
+- id: peh:OBS_SUMMARY
+  short_name: obs_summary
+  ui_label: SUMMARY
+  description: Aggregated summary of the enriched lab assays.
+  was_derived_from: peh:OBS_LAB_ENRICHED
+  observation_design: peh:OD_SUMMARY
+
+
+# =============================================================================
+# TIER 3d — ObservationGroup (enrichment / aggregation targets in one place)
+# =============================================================================
+observation_groups:
+- id: peh:OG_ENRICHMENT
+  ui_label: Enrichment targets
+  description: Derived observations produced by session.enrich.
+  observation_id_list:
+  - peh:OBS_LAB_ENRICHED
+- id: peh:OG_AGGREGATION
+  ui_label: Aggregation targets
+  description: Derived observations produced by session.aggregate.
+  observation_id_list:
+  - peh:OBS_SUMMARY
+
+
+# =============================================================================
+# TIER 1 — DataLayout (the codebook / table structure)
+# Sheet names in the data file must equal DataLayoutSection.ui_label.
+# =============================================================================
+layouts:
+- id: peh:LAYOUT_DEMO
+  short_name: codebook_demo
+  ui_label: DEMO_STUDY
+  description: Layout of the demo study; one data_table per observation.
+  sections:
+  - id: peh:SECTION_SAMPLE_METADATA
+    short_name: section_sample_metadata
+    ui_label: SAMPLE_METADATA
+    description: One row per participant.
+    section_type: data_table
+    observable_entity_type: person
+    elements:
+    - label: id_sample
+      element_type: data_field
+      observable_property: id_sample
+      is_observable_entity_key: true
+      order: 1
+    - label: sex
+      element_type: data_field
+      observable_property: sex
+      order: 2
+    - label: age_birth_m
+      element_type: data_field
+      observable_property: age_birth_m
+      order: 3
+    validation_designs:
+    - validation_name: id_sample_must_be_unique
+      validation_error_level: fatal
+      validation_error_message_template: "id_sample must be unique in SAMPLE_METADATA"
+      validation_expression:
+        validation_command: is_unique
+
+  - id: peh:SECTION_LAB_ASSAYS
+    short_name: section_lab_assays
+    ui_label: LAB_ASSAYS
+    description: One row per sample, joined to SAMPLE_METADATA on id_sample.
+    section_type: data_table
+    observable_entity_type: sample
+    elements:
+    - label: id_sample
+      element_type: data_field
+      observable_property: id_sample
+      is_observable_entity_key: true
+      order: 1
+      foreign_key_link:
+        section: peh:SECTION_SAMPLE_METADATA
+        label: id_sample
+    - label: chol
+      element_type: data_field
+      observable_property: chol
+      order: 2
+    - label: chol_lod
+      element_type: data_field
+      observable_property: chol_lod
+      order: 3
+    - label: chol_loq
+      element_type: data_field
+      observable_property: chol_loq
+      order: 4
+    - label: hdl
+      element_type: data_field
+      observable_property: hdl
+      order: 5
+    - label: trigl
+      element_type: data_field
+      observable_property: trigl
+      order: 6
+    # extract-time filter metadata (only consumed by create_tabular_extract)
+    data_filter:
+      filter_expression:
+        filter_command: is_not_null
+        filter_subject_contextual_field_references:
+        - dataset_label: LAB_ASSAYS
+          field_label: chol
+
+  - id: peh:SECTION_SUMMARY
+    short_name: section_summary
+    ui_label: SUMMARY
+    description: Aggregated summary table produced from the enriched assays.
+    section_type: property_table
+    observable_entity_type: sample
+    elements:
+    - label: id_sample
+      element_type: data_field
+      observable_property: id_sample
+      is_observable_entity_key: true
+      order: 1
+    - label: chol_mean
+      element_type: data_field
+      observable_property: chol_mean
+      order: 2
+
+
+# =============================================================================
+# TIER 1 — DataImportConfig / DataExportConfig
+# =============================================================================
+import_configs:
+- id: peh:IMPORT_DEMO
+  short_name: import_demo
+  ui_label: Import demo study
+  description: Maps the two input sheets onto the two base observations.
+  layout: peh:LAYOUT_DEMO
+  section_mapping:
+    section_mapping_links:
+    - section: peh:SECTION_SAMPLE_METADATA
+      observation_id_list:
+      - peh:OBS_SAMPLE_METADATA
+    - section: peh:SECTION_LAB_ASSAYS
+      observation_id_list:
+      - peh:OBS_LAB_ASSAYS
+
+export_configs:
+- id: peh:EXPORT_DEMO
+  short_name: export_demo
+  ui_label: Export summary
+  description: Projects the summary observation into the SUMMARY section.
+  layout: peh:LAYOUT_DEMO
+  section_mapping:
+    section_mapping_links:
+    - section: peh:SECTION_SUMMARY
+      observation_id_list:
+      - peh:OBS_SUMMARY
+
+
+# =============================================================================
+# TIER 1 — ObservationAlignment (used by concatenate_tabular_dataset_series)
+# =============================================================================
+observation_alignments:
+- id: peh:ALIGN_DEMO
+  ui_label: Enrich then aggregate alignment
+  description: >
+    Assembles the enriched observation out of the base observation group so that
+    per-source extracts can be concatenated into one series.
+  observation_assemblies:
+  - target_observation_id: peh:OBS_LAB_ENRICHED
+    source_observation_groups:
+    - peh:OG_ENRICHMENT
+    observable_property_mappings:
+    - source_observable_property_ids:
+      - chol
+      - chol_lod
+      - chol_loq
+      target_observable_property_id: chol_imputed
+
+
+# =============================================================================
+# TIER 3e — Study context
+# Note: only the generic StudyEntity / PhysicalEntity slots exist, so entries
+# load as StudyEntity / PhysicalEntity (never as Sample / Person).
+# =============================================================================
+projects:
+- id: peh:PROJECT_DEMO
+  short_name: project_demo
+  ui_label: Demo exposure project
+  description: Demonstration project for pypeh metadata extraction.
+  default_language: en
+  start_date: '2024-01-01'
+  end_date: '2024-12-31'
+  study_id_list:
+  - peh:STUDY_DEMO
+
+studies:
+- id: peh:STUDY_DEMO
+  short_name: study_demo
+  ui_label: Demo cohort study
+  description: One cohort, two observations, one derived summary.
+  default_language: en
+  start_date: '2024-02-01'
+  observation_group_id_list:
+  - peh:OG_ENRICHMENT
+  - peh:OG_AGGREGATION
+  study_entity_id_list:
+  - peh:POP_DEMO_ADULTS
+
+stakeholders:
+- id: peh:STAKEHOLDER_DATA_STEWARD
+  ui_label: Data steward
+  description: Custodian of the demo study data.
+  rorid: https://ror.org/05t8y2c36
+  translations:
+  - property_name: ui_label
+    language: en
+    translated_value: Data steward
+
+study_entities:
+- id: peh:POP_DEMO_ADULTS
+  ui_label: Demo study population
+  description: >
+    Adults of both sexes from the general population, sampled in 2024.
+- id: peh:SE_SAMPLE_0001
+  ui_label: Sample 0001
+  description: >
+    Generic StudyEntity entry. Only the base StudyEntity slots are accepted
+    here — concrete Sample slots such as `matrix` are rejected by the loader.
+  physical_entity: peh:PE_PERSON_0001
+
+physical_entities:
+- id: peh:PE_PERSON_0001
+  ui_label: Participant 0001
+  description: Generic PhysicalEntity entry (Person slots are rejected here).
+
+
+# =============================================================================
+# TIER 3f — ObservationResult / ObservedValue
+# Per-observation measured values with unit, quality and provenance context.
+# pypeh NEVER creates these during import (the import path produces dataframes,
+# not PEH results), but they load fine and are pure metadata.
+# =============================================================================
+observation_results:
+- id: peh:OR_LAB_ASSAYS_0001
+  ui_label: Lab assay result for sample 0001
+  observation_result_type: measurement
+  observation_start_date: '2024-03-01'
+  observation_end_date: '2024-03-02'
+  observed_values:
+  - observable_property: chol
+    observable_entity: peh:SE_SAMPLE_0001
+    raw_value: 4.91
+    raw_unit: http://qudt.org/vocab/unit/MicroGM-PER-L
+    normalised_value: 4.91
+    normalised_unit: http://qudt.org/vocab/unit/MilliGM-PER-Decil
+    value_as_string: '4.91'
+    quality_data:
+    - quality_context_key: below_loq
+      quality_value: 'false'
+    provenance_data:
+    - provenance_context_key: instrument
+      provenance_value: LC-MS/MS batch 2024-03-01
+  - observable_property: hdl
+    observable_entity: peh:SE_SAMPLE_0001
+    raw_value: 1.42
+    raw_unit: http://qudt.org/vocab/unit/MicroGM-PER-L
+    imputed_value: 1.42
+    imputed_unit: http://qudt.org/vocab/unit/MicroGM-PER-L
+    quality_data:
+    - quality_context_key: qc_flag
+      quality_value: pass
+
+
+# =============================================================================
+# TIER 3g — DataRequest (metadata about the data request itself)
+# =============================================================================
+data_requests:
+- id: peh:DATA_REQUEST_DEMO
+  short_name: dr_demo
+  ui_label: Demo data request
+  description: Illustrates request level metadata.
+  remark_on_content: Lipid panel with LOD/LOQ columns and participant metadata.
+  remark_on_methodology: >
+    Blood samples analysed by LC-MS/MS; below-quantification values are coded
+    -1 / -2 / -10 as described in ObservableProperty(chol).remark.
+  observation_design_id_list:
+  - peh:OD_SAMPLE_METADATA
+  - peh:OD_LAB_ASSAYS
+  observed_entity_properties:
+  - observable_entity: peh:SE_SAMPLE_0001
+    observable_property: chol
+  - observable_entity: peh:SE_SAMPLE_0001
+    observable_property: hdl
+  # NOTE: data_stakeholders / research_objectives / processing_actions /
+  # processing_steps are plain id references, NOT inlined objects: peh_model's
+  # EntityList has no slot for DataStakeholder / ResearchObjective /
+  # ProcessingAction / ProcessingStep, so these ids are permanently dangling.
+  data_stakeholders:
+  - peh:DS_DATA_STEWARD

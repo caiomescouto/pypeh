@@ -259,6 +259,85 @@ build_validation_config(
 
 Build validation configuration objects for sections in a PEH `DataLayout`.
 
+## Study Metadata
+
+```python
+create_study_metadata(
+    dataset_series: DatasetSeries,
+    data_import_config: DataImportConfig,
+    metadata_config: StudyMetadataConfig | None = None,
+    validation_report: ValidationErrorReportCollection | None = None,
+    adapter_label: str = "metadata",
+) -> dict
+```
+
+Build the study-metadata tree for an imported `DatasetSeries`. Starting from
+the `DataImportConfig`, the service walks the PEH resources in the session
+cache and combines them with the imported series into a nested dictionary:
+
+- `study` — resolved studies with their `population` entries
+  (`Study.study_entity_id_list` → `StudyEntity`; id / label / definition).
+  Note that a `StudyPopulation` currently loads as a base `StudyEntity`
+  (the peh model has no `study_populations` slot on `EntityList`), so its
+  discriminating fields (`research_population_type`, member lists) are not
+  representable yet.
+- `projects` — projects linked to those studies.
+- `observation_groups` — groups containing the configured observations or
+  anything derived from them (the enrichment / aggregation lineage).
+- `observations` — the variable catalogue: every observable property of the
+  reachable observations (the configured ones first, then the derived ones
+  in dependency order: each derived observation follows the observation it
+  was derived from) with its
+  `kind` (measurement / calculation), value type, unit, categorical /
+  multivalued flags, value options and group labels. Indicator measurements
+  carry their analyte chain under `semantics` (indicator → matrix /
+  biochemical entity, with CHEBI `exact_matches`, quantity kind and
+  constraints); calculation variables carry their `calculation` (function,
+  input links to source variables, results). LOD / LOQ `control` properties
+  are excluded by default.
+- `datasets` — the series' datasets with their variables, wire-format data
+  types (`STRING` / `INTEGER` / `FLOAT` / ...) and primary keys. Data
+  profiling (rows / nulls / distinct counts) is deliberately out of scope
+  here: per-column statistics can de-anonymize individuals in small
+  cohorts. Profiling will later be produced by the aggregation service and
+  passed in by the caller.
+- `provenance` — series label, config / layout ids, dataset sections, the
+  derived-observation chain, the pypeh and peh_model versions (`None` when
+  the distribution is not installed), and an optionally attached
+  `ValidationErrorReportCollection` in its JSON form. Validation is never
+  run here; the report is accepted from the caller.
+
+Sections are gated through `StudyMetadataConfig` (`include_link_keys`,
+`include_population`, `include_variable_catalogue`, `include_datasets`,
+`include_provenance`, `exclude_control_variables`);
+disabled sections are omitted from the tree entirely. Caller-provided
+`extra_provenance` fields (e.g. `source_file`) are appended to the
+provenance section; a key that collides with a built-in provenance field
+raises `ValueError`. When no study can be
+resolved for the config, the link-keys sections are empty and a warning
+is logged. Observations or observation designs missing from the cache are
+left out with a warning. A `ValueError` is raised when the series holds
+observations that are neither configured by nor derived from the
+`DataImportConfig`.
+
+The returned tree holds builtin types only (`dict` / `list` / `str` /
+numbers / `bool` / `None`) and shares no objects between branches, so it
+serializes directly with `json.dumps` or `yaml.safe_dump`.
+
+```python
+class StudyMetadataConfig:
+    include_link_keys: bool = True
+    include_population: bool = True
+    include_variable_catalogue: bool = True
+    include_datasets: bool = True
+    include_provenance: bool = True
+    exclude_control_variables: bool = True
+    extra_provenance: dict = {}
+```
+
+Configuration DTO for `create_study_metadata`, defined in
+`pypeh.core.models.metadata_dto`.
+
 ## Adapter Methods
 
 ```python
@@ -266,7 +345,7 @@ register_default_adapter(interface_functionality: str)
 ```
 
 Register and return the default adapter class for `validation`, `dataops`,
-`enrichment`, `extract`, or `aggregation`.
+`enrichment`, `extract`, `aggregation`, or `metadata`.
 
 ```python
 register_adapter(interface_functionality: str, adapter) -> None
