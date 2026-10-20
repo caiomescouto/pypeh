@@ -9,6 +9,7 @@ test-dataframe:
 	uv pip install -e ".[dataframe-adapter, test-core, test-dataframe]"
 	uv run pytest -s -vv tests/adapters tests/core/interfaces -m dataframe --disable-warnings
 	uv run pytest -s -vv tests/core -m dataframe --disable-warnings
+	uv run pytest -s -vv tests/integration/metadata -m dataframe --disable-warnings
 
 test-end_to_end:
 	uv pip install -e ".[dataframe-adapter, export-adapter, test-core]"

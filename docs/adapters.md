@@ -9,6 +9,7 @@ Current adapter areas include:
 - extract
 - aggregation
 - dataops
+- metadata
 
 The `Session` can use default adapters where available, or you can register a
 custom adapter with `session.register_adapter(...)`. Registered adapters only
