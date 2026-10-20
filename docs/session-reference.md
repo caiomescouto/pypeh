@@ -293,8 +293,9 @@ cache and combines them with the imported series into a nested dictionary:
   carry their analyte chain under `semantics` (indicator → matrix /
   biochemical entity, with CHEBI `exact_matches`, quantity kind and
   constraints); calculation variables carry their `calculation` (function,
-  input links to source variables, results). LOD / LOQ `control` properties
-  are excluded by default.
+  input links to the source observation + source variable, results).
+  LOD / LOQ `control` properties are excluded by default, including for
+  datasets whose observation design is missing from the cache.
 - `datasets` — the series' datasets with their variables, wire-format data
   types (`STRING` / `INTEGER` / `FLOAT` / ...) and primary keys. Data
   profiling (rows / nulls / distinct counts) is deliberately out of scope
@@ -313,7 +314,10 @@ Sections are gated through `StudyMetadataConfig` (`include_link_keys`,
 disabled sections are omitted from the tree entirely. Caller-provided
 `extra_provenance` fields (e.g. `source_file`) are appended to the
 provenance section; a key that collides with a built-in provenance field
-raises `ValueError`. When no study can be
+raises `ValueError`, as does a non-JSON value (`Path`, `set`, ... —
+values must be finite `str` / `int` / `float` / `bool` / `None` /
+`list` / str-keyed `dict`; `NaN` / `Infinity` and self-referencing
+containers are rejected). When no study can be
 resolved for the config, the link-keys sections are empty and a warning
 is logged. Observations or observation designs missing from the cache are
 left out with a warning. A `ValueError` is raised when the series holds

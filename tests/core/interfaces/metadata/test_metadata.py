@@ -403,6 +403,7 @@ class TestCatalogue:
             "inputs": [
                 {
                     "argument": None,
+                    "source_observation": "peh:obs_lab",
                     "source_variable": "peh:prop_chol",
                     "source_label": "chol",
                     "value": None,
@@ -410,6 +411,106 @@ class TestCatalogue:
             ],
             "results": ["chol_mean"],
         }
+
+    def test_shared_property_inputs_distinguish_observations(
+        self, metadata_adapter, metadata_workflow
+    ):
+        # two calculations on different derived observations reference
+        # the same property (peh:prop_chol) under their respective
+        # base observations: without source_observation the inputs
+        # would not show which dataset column (obs_lab or obs_mid)
+        # each one reads from. Each contextual kwarg references the
+        # base observation its calculation is derived from — the
+        # constraint dataops enforces when such a calculation is
+        # executed ("All CalculationKeywordArguments should refer to
+        # specified source observation"). The intermediate observation
+        # is metadata-only test data: its design carries a bare
+        # measurement specification, which dataops would reject as an
+        # enrich target.
+        session = metadata_workflow[0]
+        session.cache.add(
+            peh.ObservableProperty(
+                id="peh:prop_chol_mean_fu",
+                short_name="chol_mean_fu",
+                value_type="decimal",
+                observation_result_type="calculation",
+            )
+        )
+        session.cache.add(
+            peh.ObservationDesign(
+                id="peh:od_mid",
+                observable_property_specifications=[
+                    peh.ObservablePropertySpecification(
+                        observable_property="peh:prop_chol"
+                    )
+                ],
+            )
+        )
+        session.cache.add(
+            peh.ObservationDesign(
+                id="peh:od_followup",
+                observable_property_specifications=[
+                    peh.ObservablePropertySpecification(
+                        observable_property="peh:prop_chol_mean_fu",
+                        calculation_design=peh.CalculationDesign(
+                            calculation_name="mean_chol_fu",
+                            calculation_implementation=(
+                                peh.CalculationImplementation(
+                                    function_name="statistics_mean",
+                                    function_kwargs=[
+                                        peh.CalculationKeywordArgument(
+                                            contextual_field_reference=(
+                                                peh.ContextualFieldReference(
+                                                    dataset_label=(
+                                                        "peh:obs_mid"
+                                                    ),
+                                                    field_label=(
+                                                        "peh:prop_chol"
+                                                    ),
+                                                )
+                                            )
+                                        )
+                                    ],
+                                )
+                            ),
+                        ),
+                    )
+                ],
+            )
+        )
+        session.cache.add(
+            peh.DerivedObservation(
+                id="peh:obs_mid",
+                observation_design="peh:od_mid",
+                was_derived_from="peh:obs_lab",
+            )
+        )
+        session.cache.add(
+            peh.DerivedObservation(
+                id="peh:obs_followup",
+                observation_design="peh:od_followup",
+                was_derived_from="peh:obs_mid",
+            )
+        )
+        tree = _build(metadata_adapter, metadata_workflow)
+        inputs_by_calculation = {
+            prop["id"]: prop["calculation"]["inputs"]
+            for observation in tree["observations"]
+            for prop in observation["observable_properties"]
+            if prop["kind"] == "calculation"
+        }
+        shared = (
+            inputs_by_calculation["peh:prop_chol_mean"]
+            + inputs_by_calculation["peh:prop_chol_mean_fu"]
+        )
+        assert [item["source_variable"] for item in shared] == [
+            "peh:prop_chol",
+            "peh:prop_chol",
+        ]
+        assert [item["source_observation"] for item in shared] == [
+            "peh:obs_lab",
+            "peh:obs_mid",
+        ]
 
     def test_derived_observation_follows_base_in_lineage(
         self, metadata_adapter, metadata_workflow
@@ -517,6 +618,38 @@ class TestDatasets:
         for variable in tree["datasets"][0]["variables"]:
             assert "profile" not in variable
 
+    def test_control_excluded_even_when_design_missing(
+        self, metadata_adapter, metadata_workflow, caplog
+    ):
+        # the dataset keeps its chol_lod column but the design that
+        # specifies it is gone: the design-driven control walk never
+        # sees it, so the schema-driven pass must classify it.
+        session = metadata_workflow[0]
+        session.cache.pop("peh:od_lab", "ObservationDesign")
+        with caplog.at_level(
+            "WARNING", logger="pypeh.core.interfaces.metadata"
+        ):
+            tree = _build(metadata_adapter, metadata_workflow)
+        (dataset,) = tree["datasets"]
+        labels = [variable["label"] for variable in dataset["variables"]]
+        assert labels == ["id_sample", "chol"]  # chol_lod still excluded
+        assert any("peh:od_lab" in record.message for record in caplog.records)
+        # the observation itself stays tolerated (skipped with warning)
+        assert [obs["id"] for obs in tree["observations"]] == [
+            "peh:obs_summary"
+        ]
+
+        opted_out = _build(
+            metadata_adapter,
+            metadata_workflow,
+            StudyMetadataConfig(exclude_control_variables=False),
+        )
+        labels = [
+            variable["label"]
+            for variable in opted_out["datasets"][0]["variables"]
+        ]
+        assert "chol_lod" in labels
+
 
 class TestProvenance:
     def test_provenance_sections_and_derivation_chain(
@@ -559,6 +692,102 @@ class TestProvenance:
                     extra_provenance={"pypeh_version": "spoofed"}
                 ),
             )
+
+    def test_extra_provenance_rejects_non_json_values(
+        self, metadata_adapter, metadata_workflow
+    ):
+        from pathlib import Path
+
+        with pytest.raises(ValueError, match="source_file"):
+            _build(
+                metadata_adapter,
+                metadata_workflow,
+                StudyMetadataConfig(
+                    extra_provenance={"source_file": Path("demo.xlsx")}
+                ),
+            )
+        with pytest.raises(ValueError, match="source_file"):
+            _build(
+                metadata_adapter,
+                metadata_workflow,
+                StudyMetadataConfig(
+                    extra_provenance={"source_file": {"tries": {1, 2}}}
+                ),
+            )
+        with pytest.raises(ValueError, match="key of type int"):
+            _build(
+                metadata_adapter,
+                metadata_workflow,
+                StudyMetadataConfig(extra_provenance={1: "spoofed"}),
+            )
+
+    def test_extra_provenance_rejects_non_finite_and_circular(
+        self, metadata_adapter, metadata_workflow
+    ):
+        for bad_float in (float("nan"), float("inf"), float("-inf")):
+            with pytest.raises(ValueError, match="source_file"):
+                _build(
+                    metadata_adapter,
+                    metadata_workflow,
+                    StudyMetadataConfig(
+                        extra_provenance={"source_file": bad_float}
+                    ),
+                )
+        cyclic_list = ["demo"]
+        cyclic_list.append(cyclic_list)
+        with pytest.raises(ValueError, match="source_file"):
+            _build(
+                metadata_adapter,
+                metadata_workflow,
+                StudyMetadataConfig(
+                    extra_provenance={"source_file": cyclic_list}
+                ),
+            )
+        cyclic_dict = {}
+        cyclic_dict["self"] = cyclic_dict
+        with pytest.raises(ValueError, match="source_file"):
+            _build(
+                metadata_adapter,
+                metadata_workflow,
+                StudyMetadataConfig(
+                    extra_provenance={"source_file": cyclic_dict}
+                ),
+            )
+
+    def test_shared_references_are_not_circular(
+        self, metadata_adapter, metadata_workflow
+    ):
+        # the same list appearing twice is not a cycle and serializes
+        # fine, so it must not be flagged.
+        shared = ["etl", "demo"]
+        tree = _build(
+            metadata_adapter,
+            metadata_workflow,
+            StudyMetadataConfig(
+                extra_provenance={"tags": shared, "origin": shared}
+            ),
+        )
+        assert tree["provenance"]["tags"] == ["etl", "demo"]
+        assert tree["provenance"]["origin"] == ["etl", "demo"]
+
+    def test_caller_provenance_serializes_to_json(
+        self, metadata_adapter, metadata_workflow
+    ):
+        import json
+
+        extra = {
+            "source_file": "demo.xlsx",
+            "attempt": 2,
+            "tags": ["etl", "demo"],
+            "origin": {"tool": "pypeh", "verified": True},
+        }
+        tree = _build(
+            metadata_adapter,
+            metadata_workflow,
+            StudyMetadataConfig(extra_provenance=extra),
+        )
+        assert {key: tree["provenance"][key] for key in extra} == extra
+        assert json.loads(json.dumps(tree)) == tree
 
     def test_missing_distribution_version_is_none(
         self, metadata_adapter, metadata_workflow, monkeypatch

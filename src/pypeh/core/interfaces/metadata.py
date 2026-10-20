@@ -15,6 +15,7 @@ from __future__ import annotations
 import importlib
 import importlib.metadata
 import logging
+import math
 
 from abc import abstractmethod
 from peh_model import peh
@@ -71,6 +72,66 @@ def _package_version(distribution: str) -> str | None:
         return importlib.metadata.version(distribution)
     except importlib.metadata.PackageNotFoundError:
         return None
+
+
+def _check_json_value(
+    value: Any,
+    key: str,
+    open_containers: set[int] | None = None,
+) -> None:
+    """
+    Enforce the JSON-serialization contract on caller-provided
+    `extra_provenance` values: finite str / int / float / bool /
+    None, lists, and str-keyed dicts, recursively. Anything else
+    (Path, Decimal, set, the non-finite floats NaN / Infinity, ...)
+    and self-referencing containers raise ValueError naming the
+    offending key.
+    """
+    if open_containers is None:
+        open_containers = set()
+    if value is None or isinstance(value, (str, int, bool)):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError(
+                "StudyMetadataConfig.extra_provenance field "
+                f"{key!r} holds the non-finite float {value}; NaN "
+                "and Infinity are not valid JSON — convert it with "
+                "str(...)."
+            )
+        return
+    if isinstance(value, (list, dict)):
+        # open_containers tracks the nesting stack so that only true
+        # cycles (which json.dumps rejects too) are flagged, not
+        # plain re-referencing of the same list or dict.
+        if id(value) in open_containers:
+            raise ValueError(
+                "StudyMetadataConfig.extra_provenance field "
+                f"{key!r} holds a self-referencing "
+                f"{type(value).__name__}."
+            )
+        open_containers.add(id(value))
+        if isinstance(value, list):
+            for item in value:
+                _check_json_value(item, key, open_containers)
+        else:
+            for sub_key, item in value.items():
+                if not isinstance(sub_key, str):
+                    raise ValueError(
+                        "StudyMetadataConfig.extra_provenance field "
+                        f"{key!r} holds a dict key of type "
+                        f"{type(sub_key).__name__}; expected str — "
+                        "convert it with str(...)."
+                    )
+                _check_json_value(item, key, open_containers)
+        open_containers.remove(id(value))
+        return
+    raise ValueError(
+        "StudyMetadataConfig.extra_provenance field "
+        f"{key!r} holds a {type(value).__name__}; expected str, int, "
+        "float, bool, None, list or dict — convert it with "
+        "str(...)."
+    )
 
 
 def _to_plain(value: Any) -> Any:
@@ -151,11 +212,17 @@ class MetadataInterface(DataOpsInterface, Generic[T_DataType]):
             dataset_series, data_import_config, lineage
         )
         designs = self._observation_designs(cache_view, reachable)
-        control_ids = (
-            self._collect_control_ids(cache_view, designs)
-            if metadata_config.exclude_control_variables
-            else set()
-        )
+        if metadata_config.exclude_control_variables:
+            # Union of both views: the design walk classifies what the
+            # reachable observations specify, the schema walk what the
+            # datasets contain. The schema pass also covers datasets
+            # whose observation design is missing from the cache
+            # (missing designs are tolerated elsewhere).
+            control_ids = self._collect_control_ids(
+                cache_view, designs
+            ) | self._collect_schema_control_ids(cache_view, dataset_series)
+        else:
+            control_ids = set()
         tree: dict[str, Any] = {}
 
         if metadata_config.include_link_keys:
@@ -339,6 +406,33 @@ class MetadataInterface(DataOpsInterface, Generic[T_DataType]):
                     _as_text(op.observation_result_type) == "control"
                     and op.id not in control_ids
                 ):
+                    control_ids.add(op.id)
+        return control_ids
+
+    def _collect_schema_control_ids(
+        self,
+        cache_view: CacheContainerView,
+        dataset_series: DatasetSeries[T_DataType],
+    ) -> set[str]:
+        """
+        Classify `control` observable properties the same way as in
+        `_collect_control_ids`, but driven by the dataset schemas
+        instead of the observation designs: a schema element whose
+        observation design is missing from the cache would otherwise
+        escape the exclusion despite `exclude_control_variables`.
+        """
+        control_ids: set[str] = set()
+        for dataset in dataset_series.parts.values():
+            if dataset.schema is None:
+                continue
+            for element in dataset.schema.elements.values():
+                op_id = element.observable_property_id
+                if op_id is None or op_id in control_ids:
+                    continue
+                op = cache_view.get(op_id, "ObservableProperty")
+                if op is None:
+                    continue
+                if _as_text(op.observation_result_type) == "control":
                     control_ids.add(op.id)
         return control_ids
 
@@ -636,6 +730,15 @@ class MetadataInterface(DataOpsInterface, Generic[T_DataType]):
             inputs.append(
                 {
                     "argument": getattr(kwarg, "mapping_name", None),
+                    # execution resolves inputs by observation + property
+                    # (dataops: context_lookup), so both are needed to
+                    # pin the dependency when observations share a
+                    # property.
+                    "source_observation": (
+                        getattr(reference, "dataset_label", None)
+                        if reference is not None
+                        else None
+                    ),
                     "source_variable": source_id,
                     "source_label": (
                         getattr(source, "short_name", None)
@@ -713,7 +816,11 @@ class MetadataInterface(DataOpsInterface, Generic[T_DataType]):
         peh_model versions. The validation report is accepted from
         the caller, never run here; it is embedded in its JSON form.
         Caller-provided `extra_provenance` fields are appended but may
-        not override any of these built-in fields.
+        not override any of these built-in fields, and their values
+        must be JSON-serializable (finite str / int / float / bool /
+        None / list / str-keyed dict); NaN, Infinity and
+        self-referencing containers raise ValueError like any other
+        unsupported value.
         """
         provenance: dict[str, Any] = {
             "series_label": dataset_series.label,
@@ -753,6 +860,14 @@ class MetadataInterface(DataOpsInterface, Generic[T_DataType]):
                 "StudyMetadataConfig.extra_provenance may not override "
                 f"built-in provenance fields: {', '.join(collisions)}."
             )
+        for key, value in metadata_config.extra_provenance.items():
+            if not isinstance(key, str):
+                raise ValueError(
+                    "StudyMetadataConfig.extra_provenance key of "
+                    f"type {type(key).__name__}; expected str — "
+                    "convert it with str(...)."
+                )
+            _check_json_value(value, key)
         provenance.update(metadata_config.extra_provenance)
         return provenance
 

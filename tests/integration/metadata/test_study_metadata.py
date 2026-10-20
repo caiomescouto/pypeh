@@ -232,14 +232,17 @@ observations:
       function: compehndly.entrypoints.medium_bound_imputation
       inputs:
       - argument: measurement
+        source_observation: peh:OBS_LAB_ASSAYS
         source_variable: chol
         source_label: chol
         value: null
       - argument: loq
+        source_observation: peh:OBS_LAB_ASSAYS
         source_variable: chol_loq
         source_label: chol_loq
         value: null
       - argument: lod
+        source_observation: peh:OBS_LAB_ASSAYS
         source_variable: chol_lod
         source_label: chol_lod
         value: null
@@ -264,6 +267,7 @@ observations:
       function: pypeh.adapters.aggregation.polars_adapter.statistics.statistics_mean
       inputs:
       - argument: null
+        source_observation: peh:OBS_LAB_ENRICHED
         source_variable: chol_imputed
         source_label: chol_imputed
         value: null

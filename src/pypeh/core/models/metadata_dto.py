@@ -46,7 +46,11 @@ class StudyMetadataConfig:
     extra_provenance: dict = field(default_factory=dict)
     """Caller-provided provenance fields appended to the provenance
     section (e.g. `source_file`). Keys may not collide with built-in
-    provenance fields; a collision raises ValueError."""
+    provenance fields; a collision raises ValueError. Values must be
+    JSON-serializable (finite str / int / float / bool / None /
+    list / str-keyed dict); any other type, a non-finite float
+    (NaN / Infinity) or a self-referencing container raises
+    ValueError naming the offending key."""
 
     @classmethod
     def from_metadata_layout(cls, layout) -> "StudyMetadataConfig":
